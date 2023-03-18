@@ -2,7 +2,7 @@ import gui
 
 
 def main():
-    window = gui.MainWindow().mainloop()
+    gui.MainWindow().mainloop()
 
 
 if __name__ == '__main__':
