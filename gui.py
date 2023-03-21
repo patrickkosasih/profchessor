@@ -13,16 +13,14 @@ class Piece:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
         self.piece_type = piece_type
+        self.board = board
         self.square = square
 
-        # Load image
-        # self.image = Image.open("sprites/black rook.png").resize((size, size))
-        # self.sprite = ImageTk.PhotoImage(self.image)
+        self.square.piece = self
 
         # self.canvas_item = canvas.create_rectangle(69, 69, 420, 420, fill="green")
         sprite = PIECE_SPRITE_GROUP.piece_to_sprite(piece_type)
-        self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor=tk.CENTER)
-
+        self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor="center")
 
     def __int__(self):
         return self.canvas_item
@@ -30,12 +28,24 @@ class Piece:
     def __str__(self):
         return f"Piece(type={self.piece_type})"
 
+    def move_center(self, x, y):
+        ctr_x = x - self.square.size / 2
+        ctr_y = y - self.square.size / 2
+        self.board.moveto(self.canvas_item, ctr_x, ctr_y)
+
+    def move_to_square(self, square):
+        self.move_center(*square.get_center())
+        self.square.piece = None  # Old square
+        self.square = square
+        self.square.piece = self  # New square
+
 
 class Square:
     def __init__(self, board: tk.Canvas, i, size):
         self.i = i
         self.coordinate = chr(ord("a") + i % 8) + str(8 - i // 8)  # The standard chess coordinate
         self.size = size
+        self.piece = None
 
         # Set up canvas square
         x, y = i % 8, i // 8
@@ -63,14 +73,17 @@ class Board(tk.Canvas):
 
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
 
+        # Mouse stuff
+        self.dragging= None
+
         self.bind("<Button-1>", self.mouse_click)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
 
         # Test stuff
-        self.one_piece = Piece(self, "p", self.squares[0])
+        self.one_piece = Piece(self, "r", self.squares[0])
 
-    def square_cursor(self, x, y):
+    def get_square_on_pos(self, x, y):
         """
         Returns the square that the mouse cursor (or any xy coordinate) is currently on
         """
@@ -81,19 +94,17 @@ class Board(tk.Canvas):
     Mouse event methods
     """
     def mouse_click(self, event):
-        # print(f"Click x: {event.x}, y: {event.y}")
-        print(self.square_cursor(event.x, event.y))
+        self.dragging = self.get_square_on_pos(event.x, event.y).piece
+        self.dragging.move_center(event.x, event.y)
 
     def mouse_motion(self, event):
-        # print(f"Motion x: {event.x}, y: {event.y}")
-        # self.itemconfig(int(self.square_cursor(event.x, event.y)), fill="black")
-        pass
+        if self.dragging:
+            self.dragging.move_center(event.x, event.y)
 
     def mouse_release(self, event):
-        # print(f"Release x: {event.x}, y: {event.y}")
-        pass
-
-
+        if self.dragging:
+            self.dragging.move_to_square(self.get_square_on_pos(event.x, event.y))
+            self.dragging = None
 
 class MainWindow(tk.Tk):
     def __init__(self):
