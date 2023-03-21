@@ -1,10 +1,11 @@
 import tkinter as tk
 from PIL import Image, ImageTk
 
+import chess
 import shared
 import sprites
 
-PIECE_SPRITE_GROUP = sprites.PieceSpriteGroup("sprites/piece_map.json")
+PIECE_SPRITE_GROUP = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
 
 
 class Piece:
@@ -33,15 +34,16 @@ class Piece:
         ctr_y = y - self.square.size / 2
         self.board.moveto(self.canvas_item, ctr_x, ctr_y)
 
-    def move_to_square(self, square):
-        self.move_center(*square.get_center())
-        self.square.piece = None  # Old square
-        self.square = square
+    def move_to_square(self, new_square):
+        self.move_center(*new_square.get_center())
+        new_square.remove_piece()
+        self.square = new_square
         self.square.piece = self  # New square
 
 
 class Square:
     def __init__(self, board: tk.Canvas, i, size):
+        self.board = board
         self.i = i
         self.coordinate = chr(ord("a") + i % 8) + str(8 - i // 8)  # The standard chess coordinate
         self.size = size
@@ -59,6 +61,12 @@ class Square:
     def __str__(self):
         return f"Square(i={self.i}, coordinate={self.coordinate})"
 
+    def remove_piece(self):
+        if self.piece:
+            self.piece.square = None
+            self.board.delete(int(self.piece))
+            self.piece = None
+
     def get_center(self):
         return (self.i % 8 + 0.5) * self.size, (self.i // 8 + 0.5) * self.size
 
@@ -73,21 +81,34 @@ class Board(tk.Canvas):
 
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
 
-        self.dragging= None  # Currently dragging piece
+        self.dragging = None  # Piece that's currently being dragged
 
+        self.game = chess.ChessGame()
+        self.load_board(self.game.board)
+
+        # Mouse events
         self.bind("<Button-1>", self.mouse_click)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
 
         # Test stuff
-        self.one_piece = Piece(self, "B", self.squares[0])
+        # self.one_piece = Piece(self, "B", self.squares[0])
+
+    def load_board(self, board_data: list[64]):
+        for piece_type, gui_square in zip(board_data, self.squares):
+            if piece_type:
+                gui_square = Piece(self, piece_type, gui_square)
+
+    def move_piece(self, piece, new_square):
+        self.dragging.move_to_square(new_square)
+        self.dragging = None
 
     def get_square_on_pos(self, x, y):
         """
         Returns the square that is on a specified position relative to the board
         Returns None if position is out of bounds
         """
-        if not 0 < x < self.board_size and 0 < y < self.board_size:
+        if not (0 < x < self.board_size and 0 < y < self.board_size):
             return None
 
         sqx, sqy = int(x // self.square_size), int(y // self.square_size)
@@ -98,7 +119,8 @@ class Board(tk.Canvas):
     """
     def mouse_click(self, event):
         self.dragging = self.get_square_on_pos(event.x, event.y).piece
-        self.dragging.move_center(event.x, event.y)
+        if self.dragging:
+            self.dragging.move_center(event.x, event.y)
 
     def mouse_motion(self, event):
         if self.dragging:
@@ -108,8 +130,7 @@ class Board(tk.Canvas):
         square = self.get_square_on_pos(event.x, event.y)
 
         if self.dragging and square:
-            self.dragging.move_to_square(square)
-            self.dragging = None
+            self.move_piece(self.dragging, square)
 
 class MainWindow(tk.Tk):
     def __init__(self):
@@ -117,7 +138,7 @@ class MainWindow(tk.Tk):
         self.title("Profchessor")
         self.geometry("800x800")
         self.configure(bg=shared.BG_COLOR)
-        self.wm_iconphoto(False, tk.PhotoImage(file="sprites/black pawn.png"))
+        self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
         # self.wm_attributes("-fullscreen", True)  # Fullscreen
         self.state("zoomed")  # Maximized
