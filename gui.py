@@ -73,20 +73,23 @@ class Board(tk.Canvas):
 
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
 
-        # Mouse stuff
-        self.dragging= None
+        self.dragging= None  # Currently dragging piece
 
         self.bind("<Button-1>", self.mouse_click)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
 
         # Test stuff
-        self.one_piece = Piece(self, "r", self.squares[0])
+        self.one_piece = Piece(self, "B", self.squares[0])
 
     def get_square_on_pos(self, x, y):
         """
-        Returns the square that the mouse cursor (or any xy coordinate) is currently on
+        Returns the square that is on a specified position relative to the board
+        Returns None if position is out of bounds
         """
+        if not 0 < x < self.board_size and 0 < y < self.board_size:
+            return None
+
         sqx, sqy = int(x // self.square_size), int(y // self.square_size)
         return self.squares[sqx + sqy * 8]
 
@@ -102,8 +105,10 @@ class Board(tk.Canvas):
             self.dragging.move_center(event.x, event.y)
 
     def mouse_release(self, event):
-        if self.dragging:
-            self.dragging.move_to_square(self.get_square_on_pos(event.x, event.y))
+        square = self.get_square_on_pos(event.x, event.y)
+
+        if self.dragging and square:
+            self.dragging.move_to_square(square)
             self.dragging = None
 
 class MainWindow(tk.Tk):

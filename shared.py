@@ -1,6 +1,6 @@
 BG_COLOR = "#2b3030"
 DARK_SQUARE_COLOR = "#855313"
-LIGHT_SQUARE_COLOR = "#ffecc2"
+LIGHT_SQUARE_COLOR = "#ffe4ad"
 
 PIECE_TYPES = ["P", "R", "N", "B", "Q", "K",
                "p", "r", "n", "b", "q", "k"]
