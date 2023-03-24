@@ -1,16 +1,19 @@
 import tkinter as tk
-from PIL import Image, ImageTk
 
 import chess
 import shared
 import sprites
+
+BG_COLOR = "#2b3030"
+DARK_SQUARE_COLOR = "#855313"
+LIGHT_SQUARE_COLOR = "#ffe4ad"
 
 PIECE_SPRITE_GROUP = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
 
 
 class Piece:
     def __init__(self, board: tk.Canvas, piece_type, square):
-        if piece_type not in shared.PIECE_TYPES:
+        if piece_type not in chess.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
         self.piece_type = piece_type
@@ -36,9 +39,17 @@ class Piece:
 
     def move_to_square(self, new_square):
         self.move_center(*new_square.get_center())
+
+        if new_square is self.square:
+            return
+
+        old_square = self.square
+
         new_square.remove_piece()
         self.square = new_square
-        self.square.piece = self  # New square
+
+        new_square.piece = self
+        old_square.piece = None
 
 
 class Square:
@@ -51,7 +62,7 @@ class Square:
 
         # Set up canvas square
         x, y = i % 8, i // 8
-        color = shared.LIGHT_SQUARE_COLOR if (x + y) % 2 == 0 else shared.DARK_SQUARE_COLOR
+        color = LIGHT_SQUARE_COLOR if (x + y) % 2 == 0 else DARK_SQUARE_COLOR
         self.canvas_item = board.create_rectangle(x * size, y * size, (x + 1) * size, (y + 1) * size,
                                                   fill=color, outline="")
 
@@ -72,7 +83,7 @@ class Square:
 
 
 class Board(tk.Canvas):
-    def __init__(self, root, size, **kw):
+    def __init__(self, root, game, size, **kw):
         super(Board, self).__init__(root, width=size, height=size, highlightthickness=0, **kw)
 
         self.root = root
@@ -83,13 +94,14 @@ class Board(tk.Canvas):
 
         self.dragging = None  # Piece that's currently being dragged
 
-        self.game = chess.ChessGame()
+        self.game = game
         self.load_board(self.game.board)
 
         # Mouse events
         self.bind("<Button-1>", self.mouse_click)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
+        self.bind("<Button-3>", self.right_mouse_click)
 
         # Test stuff
         # self.one_piece = Piece(self, "B", self.squares[0])
@@ -99,9 +111,8 @@ class Board(tk.Canvas):
             if piece_type:
                 gui_square = Piece(self, piece_type, gui_square)
 
-    def move_piece(self, piece, new_square):
-        self.dragging.move_to_square(new_square)
-        self.dragging = None
+    def output_move(self, piece, new_square):
+        pass
 
     def get_square_on_pos(self, x, y):
         """
@@ -115,7 +126,18 @@ class Board(tk.Canvas):
         return self.squares[sqx + sqy * 8]
 
     """
-    Mouse event methods
+    Drag and drop methods
+    """
+    def move_piece(self, new_square):
+        self.dragging.move_to_square(new_square)
+        self.dragging = None
+
+    def cancel_move(self):
+        self.dragging.move_to_square(self.dragging.square)
+        self.dragging = None
+
+    """
+    Mouse event methods (directly bound to mouse)
     """
     def mouse_click(self, event):
         self.dragging = self.get_square_on_pos(event.x, event.y).piece
@@ -130,20 +152,28 @@ class Board(tk.Canvas):
         square = self.get_square_on_pos(event.x, event.y)
 
         if self.dragging and square:
-            self.move_piece(self.dragging, square)
+            # Move piece
+            self.move_piece(square)
+        else:
+            self.cancel_move()
+
+    def right_mouse_click(self, event):
+        if self.dragging:
+            self.cancel_move()
 
 class MainWindow(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Profchessor")
         self.geometry("800x800")
-        self.configure(bg=shared.BG_COLOR)
+        self.configure(bg=BG_COLOR)
         self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
         # self.wm_attributes("-fullscreen", True)  # Fullscreen
         self.state("zoomed")  # Maximized
 
-        self.board = Board(self, size=self.winfo_screenheight() * 0.75)
+        self.game = chess.ChessGame()
+        self.board = Board(self, self.game, size=self.winfo_height() * 0.75)
         # self.board = Board(self, size=700)
 
         self.board.pack(anchor="center", expand=True)

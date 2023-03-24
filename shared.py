@@ -1,17 +1,14 @@
-BG_COLOR = "#2b3030"
-DARK_SQUARE_COLOR = "#855313"
-LIGHT_SQUARE_COLOR = "#ffe4ad"
+def func_timer(func):
+    # A decorator to measure the time taken to run a function
+    def wrapper(*args, **kwargs):
+        time_before = time.perf_counter()
+        ret = func(*args, **kwargs)  # Call function
+        time_taken = time.perf_counter() - time_before
 
-PIECE_TYPES = ["P", "R", "N", "B", "Q", "K",
-               "p", "r", "n", "b", "q", "k"]
-"""
-P = Pawn
-R = Rook
-N = Knight
-B = Bishop
-Q = Queen
-K = King
+        print(f"{func.__name__} took {time_taken} seconds to run")
+        return ret
 
-Uppercase = White
-Lowercase = Black
-"""
+    return wrapper
+
+
+
