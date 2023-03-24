@@ -8,10 +8,10 @@ BG_COLOR = "#2b3030"
 DARK_SQUARE_COLOR = "#855313"
 LIGHT_SQUARE_COLOR = "#ffe4ad"
 
-PIECE_SPRITE_GROUP = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
-
 
 class Piece:
+    PSG = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
+
     def __init__(self, board: tk.Canvas, piece_type, square):
         if piece_type not in chess.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
@@ -22,8 +22,8 @@ class Piece:
 
         self.square.piece = self
 
-        # self.canvas_item = canvas.create_rectangle(69, 69, 420, 420, fill="green")
-        sprite = PIECE_SPRITE_GROUP.piece_to_sprite(piece_type)
+        Piece.PSG.piece_size = int(self.square.size * 0.9)
+        sprite = Piece.PSG.piece_to_sprite(piece_type)
         self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor="center")
 
     def __int__(self):
@@ -33,9 +33,10 @@ class Piece:
         return f"Piece(type={self.piece_type})"
 
     def move_center(self, x, y):
-        ctr_x = x - self.square.size / 2
-        ctr_y = y - self.square.size / 2
-        self.board.moveto(self.canvas_item, ctr_x, ctr_y)
+        # ctr_x = x - self.square.size / 2
+        # ctr_y = y - self.square.size / 2
+        # self.board.moveto(self.canvas_item, ctr_x, ctr_y)
+        self.board.coords(self.canvas_item, x, y)
 
     def move_to_square(self, new_square):
         self.move_center(*new_square.get_center())
@@ -56,15 +57,18 @@ class Square:
     def __init__(self, board: tk.Canvas, i, size):
         self.board = board
         self.i = i
-        self.coordinate = chr(ord("a") + i % 8) + str(8 - i // 8)  # The standard chess coordinate
+        self.coordinate = chess.i_to_coordinate(i)
         self.size = size
         self.piece = None
 
         # Set up canvas square
         x, y = i % 8, i // 8
-        color = LIGHT_SQUARE_COLOR if (x + y) % 2 == 0 else DARK_SQUARE_COLOR
+        self.default_color = LIGHT_SQUARE_COLOR if (x + y) % 2 == 0 else DARK_SQUARE_COLOR
         self.canvas_item = board.create_rectangle(x * size, y * size, (x + 1) * size, (y + 1) * size,
-                                                  fill=color, outline="")
+                                                  fill=self.default_color, outline="")
+
+        # Debug text that shows the index of the square
+        # board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
         return self.canvas_item
@@ -86,15 +90,17 @@ class Board(tk.Canvas):
     def __init__(self, root, game, size, **kw):
         super(Board, self).__init__(root, width=size, height=size, highlightthickness=0, **kw)
 
+        self.game = game
         self.root = root
         self.board_size = int(size)
         self.square_size = self.board_size / 8
 
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
 
+        # Drag and drop stuff
         self.dragging = None  # Piece that's currently being dragged
+        self.legal_move_markers = []
 
-        self.game = game
         self.load_board(self.game.board)
 
         # Mouse events
@@ -109,11 +115,15 @@ class Board(tk.Canvas):
     def load_board(self, board_data: list[64]):
         for piece_type, gui_square in zip(board_data, self.squares):
             if piece_type:
-                gui_square = Piece(self, piece_type, gui_square)
+                Piece(self, piece_type, gui_square)
 
     def output_move(self, piece, new_square):
+        # Coming soon: move a piece without the player's control when playing against the computer or another player
         pass
 
+    """
+    Drag and drop related methods
+    """
     def get_square_on_pos(self, x, y):
         """
         Returns the square that is on a specified position relative to the board
@@ -125,39 +135,68 @@ class Board(tk.Canvas):
         sqx, sqy = int(x // self.square_size), int(y // self.square_size)
         return self.squares[sqx + sqy * 8]
 
-    """
-    Drag and drop methods
-    """
     def move_piece(self, new_square):
         self.dragging.move_to_square(new_square)
         self.dragging = None
 
     def cancel_move(self):
-        self.dragging.move_to_square(self.dragging.square)
-        self.dragging = None
+        if self.dragging:
+            self.dragging.move_to_square(self.dragging.square)
+            self.dragging = None
+
+    def mark_legal_moves(self, square: int):
+        r = 5
+
+        if square in self.game.legal_moves:
+            for move_to in self.game.legal_moves[square]:
+                x, y = self.squares[move_to].get_center()
+                marker = self.create_oval(x - r, y - r, x + r, y + r, fill="#fff", outline="black")
+
+                self.legal_move_markers.append(marker)
+
+    def unmark_legal_moves(self):
+        for x in self.legal_move_markers:
+            self.delete(x)
+
+        self.legal_move_markers = []
+
 
     """
-    Mouse event methods (directly bound to mouse)
+    Mouse event methods
     """
     def mouse_click(self, event):
         self.dragging = self.get_square_on_pos(event.x, event.y).piece
+
         if self.dragging:
             self.dragging.move_center(event.x, event.y)
+            self.mark_legal_moves(self.dragging.square.i)
+            self.lift(self.dragging.canvas_item)  # Order dragging piece to the topmost layer
 
     def mouse_motion(self, event):
         if self.dragging:
             self.dragging.move_center(event.x, event.y)
 
     def mouse_release(self, event):
-        square = self.get_square_on_pos(event.x, event.y)
+        cancel_move = True
+        self.unmark_legal_moves()
 
-        if self.dragging and square:
-            # Move piece
-            self.move_piece(square)
-        else:
+        if self.dragging:
+            new_square = self.get_square_on_pos(event.x, event.y)
+
+            if new_square:
+                move_result = self.game.move(self.dragging.square.i, new_square.i)
+
+                if move_result != 0:
+                    self.move_piece(new_square)
+                    cancel_move = False
+
+        if cancel_move:
             self.cancel_move()
 
+
     def right_mouse_click(self, event):
+        self.unmark_legal_moves()
+
         if self.dragging:
             self.cancel_move()
 
@@ -170,10 +209,10 @@ class MainWindow(tk.Tk):
         self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
         # self.wm_attributes("-fullscreen", True)  # Fullscreen
-        self.state("zoomed")  # Maximized
+        # self.state("zoomed")  # Maximized
 
         self.game = chess.ChessGame()
-        self.board = Board(self, self.game, size=self.winfo_height() * 0.75)
+        self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
         # self.board = Board(self, size=700)
 
         self.board.pack(anchor="center", expand=True)

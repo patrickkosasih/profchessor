@@ -1,3 +1,6 @@
+import time
+
+
 def func_timer(func):
     # A decorator to measure the time taken to run a function
     def wrapper(*args, **kwargs):

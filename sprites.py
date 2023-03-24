@@ -46,7 +46,7 @@ class PieceSpriteGroup(SpriteGroup):
         super().__init__()
 
         # Attributes
-        self.piece_size = 100
+        self.piece_size = 60  # Coming soon: resize method that resizes all sprites
 
         # Load the json file into a dictionary
         with open(piece_map, "r") as f:
