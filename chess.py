@@ -23,10 +23,8 @@ STARTING_BOARD = list("rnbqkbnr") + ["p"] * 8 + [""] * 32 + ["P"] * 8 + list("RN
 # STARTING_BOARD[27] = "Q"
 
 MOVE_OFFSETS = {
-    "P": [-8],       # White pawn
-    "p": [8],        # Black pawn
-    "Pc": [-7, -9],  # White pawn capture
-    "pc": [7, 9],    # Black pawn capture
+    "P": [-8, -7, -9],  # White pawn
+    "p": [8, 7, 9],     # Black pawn
 
     "R": [1, -1, 8, -8],
     "B": [7, -7, 9, -9],
@@ -53,7 +51,7 @@ def i_to_xy(i: int):
     return i % 8, i // 8
 
 def offset_to_xy(i: int):
-    x, y = (i % 8, i // 8)
+    x, y = i % 8, i // 8
     if x > 4:
         x = x % -8
         y += 1
@@ -98,31 +96,46 @@ class ChessGame:
     def __init__(self):
         self.board = STARTING_BOARD
         self.turn = True  # True: white's turn, False: black's turn
-        self.legal_moves = {}
+        self.move_num = 1
+        self.en_passantable = -1
 
+        self.legal_moves = {}
         self.update_legal_moves()
+
+        self.board_gui = None
 
         # print(self.legal_moves)
 
     def generate_piece_moves(self, square: int):
         """
         Generate the legal squares a piece can move to
-        The only moves generated are regular moves such as moving or capturing a piece
         """
-        assert self.board[square]  # Error if square is empty
 
         ret = []
         piece = self.board[square]
         piece_type = piece if piece == "p" else piece.upper()
         # Piece type is always uppercase unless it's a pawn because the pawn's offset is dependent on its color
 
+        assert piece or piece not in PIECE_TYPES
+
+        """
+        I. Regular moves
+        - Moves
+        - Captures
+        
+        Calculating regular moves is mostly based on piece offsets and the "tracer"
+        
+        The tracer is an imaginary thing that goes from a piece to one straight direction (the offset) while marking the
+        available squares a piece can go
+        """
         for offset in MOVE_OFFSETS[piece_type]:
             tracer = square
-            # The tracer is an imaginary thing that goes from a piece to one straight direction (the offset) while
-            # marking the available squares a piece can go
+            pawn_capture = piece_type in ["P", "p"] and abs(offset) != 8
+            # pawn_capture is True if the current offset is calculating a pawn capture
 
-            if piece_type in ["N", "K"]:
+            if piece_type in ["N", "K"] or pawn_capture:
                 # Kings and knights can't move as far as they want
+                # Pawns can only capture 1 space diagonally in front of them
                 repeats = 2
             elif piece_type in ["P", "p"]:
                 # Pawns can move 1 or 2 squares forward if they are on the 2nd or 7th rank
@@ -132,30 +145,38 @@ class ChessGame:
                 repeats = 8
 
             for _ in range(repeats):
-                if tracer != square:
-                    ret.append(tracer)
-
                 if self.board[tracer] and tracer != square:
                     # The tracing square has reached another piece
+
                     if self.board[tracer].isupper() == piece.isupper():
                         # Same color piece (cannot be captured)
-                        ret.pop(-1)
                         break
                     else:
                         # Opposite color piece (can be captured)
-                        if piece_type.upper() == "P":
-                            ret.pop(-1)
+                        # Pawns only can capture if the current offset is a pawn capture offset
+                        if piece_type not in ["P", "p"] or pawn_capture:
+                            ret.append(tracer)
                         break
 
                 elif is_tracer_at_edge(tracer, offset):
                     # Tracer goes has reached the edge of the board
                     break
 
+                elif pawn_capture and tracer == self.en_passantable:
+                    # Tracer is on the en passantable square and the pawn can capture the pawn beside it
+                    ret.append(tracer)
+
+
+                elif tracer != square and not pawn_capture:
+                    # Tracer is on an available empty square
+                    ret.append(tracer)
+
                 # Continue tracing
                 tracer += offset
 
         return ret
 
+    # @shared.func_timer
     def update_legal_moves(self):
         self.legal_moves = {}
 
@@ -171,10 +192,31 @@ class ChessGame:
         if old not in self.legal_moves or new not in self.legal_moves[old]:
             return 0  # Illegal move
 
-        self.board[new] = self.board[old]
+        piece = self.board[old]
+        self.board[new] = piece
         self.board[old] = ""
 
         self.turn = not self.turn
+        if self.turn:
+            self.move_num += 1
+
+        # En passant stuff
+        new_en_passantable = False
+        if piece in ["P", "p"]:
+            if abs(new - old) == 16:
+                # If a pawn moved two squares on its first move, then mark the square behind that pawn as en passantable
+                self.en_passantable = old + (8 if piece == "p" else -8)
+                new_en_passantable = True
+
+            elif new == self.en_passantable:
+                # If a pawn captures an en passantable square, capture the pawn behind
+                self.board[new + (-8 if piece == "p" else 8)] = ""
+                if self.board_gui:
+                    self.board_gui.reset_board(self.board)   # Soon to be replaced when gui.Board.output_move works
+
+        if not new_en_passantable:
+            self.en_passantable = -1
+
         self.update_legal_moves()
 
 # # Some testing and stuff

@@ -68,7 +68,7 @@ class Square:
                                                   fill=self.default_color, outline="")
 
         # Debug text that shows the index of the square
-        # board.create_text(x * size + 10, y * size + 10, text=i)
+        board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
         return self.canvas_item
@@ -101,7 +101,7 @@ class Board(tk.Canvas):
         self.dragging = None  # Piece that's currently being dragged
         self.legal_move_markers = []
 
-        self.load_board(self.game.board)
+        self.reset_board(self.game.board)
 
         # Mouse events
         self.bind("<Button-1>", self.mouse_click)
@@ -112,8 +112,16 @@ class Board(tk.Canvas):
         # Test stuff
         # self.one_piece = Piece(self, "B", self.squares[0])
 
-    def load_board(self, board_data: list[64]):
+    def reset_board(self, board_data: list[64]):
+        if self.dragging:
+            self.delete(self.dragging.canvas_item)
+            self.dragging = None
+
         for piece_type, gui_square in zip(board_data, self.squares):
+            if gui_square.piece:
+                self.delete(gui_square.piece.canvas_item)
+                gui_square.piece = None
+
             if piece_type:
                 Piece(self, piece_type, gui_square)
 
@@ -136,8 +144,9 @@ class Board(tk.Canvas):
         return self.squares[sqx + sqy * 8]
 
     def move_piece(self, new_square):
-        self.dragging.move_to_square(new_square)
-        self.dragging = None
+        if self.dragging:
+            self.dragging.move_to_square(new_square)
+            self.dragging = None
 
     def cancel_move(self):
         if self.dragging:
@@ -213,6 +222,7 @@ class MainWindow(tk.Tk):
 
         self.game = chess.ChessGame()
         self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
+        self.game.board_gui = self.board
         # self.board = Board(self, size=700)
 
         self.board.pack(anchor="center", expand=True)
