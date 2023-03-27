@@ -1,7 +1,6 @@
 import tkinter as tk
 
-import chess
-import shared
+import ruleset
 import sprites
 
 BG_COLOR = "#2b3030"
@@ -13,7 +12,7 @@ class Piece:
     PSG = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
 
     def __init__(self, board: tk.Canvas, piece_type, square):
-        if piece_type not in chess.PIECE_TYPES:
+        if piece_type not in ruleset.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
         self.piece_type = piece_type
@@ -57,7 +56,7 @@ class Square:
     def __init__(self, board: tk.Canvas, i, size):
         self.board = board
         self.i = i
-        self.coordinate = chess.i_to_coordinate(i)
+        self.coordinate = ruleset.i_to_coordinate(i)
         self.size = size
         self.piece = None
 
@@ -220,7 +219,9 @@ class MainWindow(tk.Tk):
         # self.wm_attributes("-fullscreen", True)  # Fullscreen
         # self.state("zoomed")  # Maximized
 
-        self.game = chess.ChessGame()
+        self.game = ruleset.ChessGame()
+        # self.game.load_fen("r1bqk1nr/p1pp2pp/2n2p2/1pb1p1N1/2B1P3/5P2/PPPP2PP/RNBQK2R w KQkq b6 0 6")
+
         self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
         self.game.board_gui = self.board
         # self.board = Board(self, size=700)
