@@ -170,12 +170,18 @@ class Position:
         piece_type = piece if piece == "p" else piece.upper()
         # Piece type is always uppercase unless it's a pawn because the pawn's offset is dependent on its color
 
+        must_evade_check = self.check and not controlling_only
+        # If true then the move must evade the check
+        # If controlling_only is true then checks don't matter because the given piece is an enemy piece
+
         assert piece in PIECE_TYPES, f"invalid piece \"{piece}\""
 
         for offset in MOVE_OFFSETS[piece_type]:
             tracer = square + offset
 
+            pawn_push = piece_type in ("P", "p") and abs(offset) == 8
             pawn_capture = piece_type in ("P", "p") and abs(offset) != 8
+            # pawn_push is True if the current offset is calculating a pawn push
             # pawn_capture is True if the current offset is calculating a pawn capture
 
             if is_tracer_at_edge(square, offset) or (not pawn_capture and controlling_only and piece in ["P", "p"]):
@@ -209,34 +215,43 @@ class Position:
                     Continue tracing if the tracer piece is the enemy king and controlling_only is true, otherwise,
                     stop tracing
                     
-                    =============================================================================
-                    Determine whether the tracer piece should be added to the return value or not
-                    =============================================================================
+                    ===============================================================================================
+                    Determine whether the tracer piece should be appended to the return value or not (append_piece)
+                    ===============================================================================================
                     
-                    1. Opposite color piece can be captured
+                    1. Opposite color pieces can be captured
 
                     2. Same color pieces can't be captured, but if controlling_only is true, the tracer piece is
-                       added to the return value because it's supported by the current piece
+                       added to the return value because that piece supported by the current piece
 
                     3. Pawns only can capture if the current offset is a pawn capture offset
                     
-                    4. While on check, a piece cannot capture an enemy piece unless the piece captured is the one
-                       who is checking the king. The king can capture another piece while on check whether it's the
-                       checking piece or another enemy piece, as long as that piece is not protected by another
-                       piece
+                    4. While on check:
+                        a. Pieces (except the king) cannot capture an enemy piece unless the piece captured is the one
+                           who is checking the king.
+                        b. The king can capture another piece while on check whether it's the checking piece or another
+                           enemy piece, as long as that piece is not protected by another piece
                     """
                     different_color = tracer_piece.isupper() != piece.isupper()
                     stop_tracing = True
 
-                    if (not self.check and different_color or controlling_only and
-                            (piece_type not in ("P", "p") or pawn_capture)) or \
-                            (self.check and tracer == self.checking_piece and different_color) or \
-                            (piece_type == "K" and different_color and tracer not in self.attacked_squares):
+
+
+                    if (not must_evade_check and (different_color or controlling_only) and not pawn_push) or \
+                            (must_evade_check and (piece_type != "K" and tracer == self.checking_piece) or
+                             (piece_type == "K" and tracer not in self.attacked_squares and different_color)):
 
                         tracer_path.append(tracer)
 
                         if tracer_piece in ("K", "k") and different_color:
-                            # If one/two of the enemy pieces is attacking the king then it's a check
+                            """
+                            =====
+                            Check
+                            =====
+                            
+                            If one/two of the enemy pieces is attacking the king (the tracer reaches the enemy king)
+                            then it's a check
+                            """
 
                             assert controlling_only, "one of the legal moves is capturing the king"
                             # If one of the legal moves is directly capturing the king then something went wrong
@@ -256,28 +271,30 @@ class Position:
                     if stop_tracing:
                         break
 
-                elif tracer != square and not pawn_capture or \
-                        pawn_capture and (tracer == self.en_passantable or controlling_only):
+                elif (tracer != square and not pawn_capture) or \
+                        (pawn_capture and (tracer == self.en_passantable or controlling_only)):
                     """
                     ================
                     Continue tracing
                     ================
                     
                     1. Tracer is on an available empty square
-                    2. Tracer is on the en passantable square and the pawn can capture the pawn beside it
+                    2. Tracer is on the en passantable square: the given pawn can capture the pawn beside it
                     3. The current offset is a pawn capture offset and controlling_only is True
                     
-                    4. While on check, a piece (other than the king) can only block the checking path. For every offset
-                       of a piece, there is only a maximum of 1 possible blocking move.
-                    5. While on check, the king can move to an empty square as long as that square isn't attacked by the
-                       enemy pieces
+                    4. While on check:
+                        a. A piece (other than the king) can only move to an empty square that blocks the checking path.
+                           For every offset of a piece, there is only a maximum of 1 possible blocking move.
+                        b. The king can move to an empty square as long as that square isn't attacked by the enemy
+                           pieces
                     """
 
-                    if (piece_type != "K" and not self.check or controlling_only) or \
+                    if (not must_evade_check and piece_type != "K") or \
+                            (controlling_only and pawn_capture) or \
                             (piece_type == "K" and tracer not in self.attacked_squares):
                         tracer_path.append(tracer)
 
-                    elif self.check and tracer in self.checking_path:
+                    elif must_evade_check and piece_type != "K" and tracer in self.checking_path:
                         tracer_path.append(tracer)
                         break
 
@@ -335,9 +352,9 @@ class Position:
 
         self.legal_moves = {square: self.generate_piece_moves(square) for square in (white if self.turn else black)}
 
-        print()
-        print("Legal moves", self.legal_moves)
-        print("Attacked", self.enemy_moves)
+        # print()
+        # print("Legal moves", self.legal_moves)
+        # print("Attacked", self.enemy_moves)
 
     def move(self, old: int, new: int):
         if old not in self.legal_moves or new not in self.legal_moves[old]:
@@ -400,7 +417,7 @@ class Position:
 
         # Testing stuff
         if self.check:
-            print("Check!", self.attacked_squares)
+            print("Check!")
 
         if all(len(x) == 0 for x in self.legal_moves.values()):
             if self.check:
