@@ -158,7 +158,7 @@ class Board(tk.Canvas):
         if square in self.game.legal_moves:
             for move_to in self.game.legal_moves[square]:
                 x, y = self.squares[move_to].get_center()
-                marker = self.create_oval(x - r, y - r, x + r, y + r, fill="#fff", outline="black")
+                marker = self.create_oval(x - r, y - r, x + r, y + r, fill="white", outline="black")
 
                 self.legal_move_markers.append(marker)
 
@@ -167,7 +167,6 @@ class Board(tk.Canvas):
             self.delete(x)
 
         self.legal_move_markers = []
-
 
     """
     Mouse event methods
@@ -219,8 +218,12 @@ class MainWindow(tk.Tk):
         # self.wm_attributes("-fullscreen", True)  # Fullscreen
         # self.state("zoomed")  # Maximized
 
+        # Testing stuff
+        # fen = "r4k2/p1pnqp2/1p1b3p/8/2pP2Q1/1P3NP1/P3r2P/R1B2RK1 w - - 1 23"
+        # fen = "8/8/8/8/8/pk2n3/8/K7 b - - 3 65"
+        # fen = "8/8/8/8/3q1k2/8/2n5/5K2 b - - 13 74"
+
         self.game = ruleset.ChessGame()
-        # self.game.load_fen("r1bqk1nr/p1pp2pp/2n2p2/1pb1p1N1/2B1P3/5P2/PPPP2PP/RNBQK2R w KQkq b6 0 6")
 
         self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
         self.game.board_gui = self.board
