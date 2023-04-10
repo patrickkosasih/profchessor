@@ -63,8 +63,7 @@ The numbers inside the lists refer to the following:
 * Index 1 = The square the king "passes through" when castling and the square the rook will end up on after castling
 * Index 2 = The square the king will end up on after castling
 * Index 3 = The rook's original square
-* Index 4 = The queenside knight's original square (only for queenside castling ("Q" and "q") because that square must
-            also be empty for a king to castle queenside)
+* Index 4 = The queenside knight's original square (exclusive to queenside castling ("Q" and "q"))
 """
 
 
@@ -126,8 +125,17 @@ Position and ChessGame classes
 ==============================
 """
 class Position:
+    """
+    Position is a class that describes a chess position. It contains methods that are used to generate legal moves,
+    make a move on the current position, load a FEN string, and more.
+    """
+
     def __init__(self, fen=None):
-        # Standard chess position properties (according to FEN)
+        """"""
+
+        """
+        Standard chess position properties (according to FEN)
+        """
         self.board = STARTING_BOARD
         self.turn = True  # True: white's turn, False: black's turn
         self.move_num = 1
@@ -135,13 +143,26 @@ class Position:
         self.en_passantable = -1
         self.castling_rights = {"K": True, "k": True, "Q": True, "q": True}
 
-        # Legal move generation attributes
+        """
+        Legal move generation attributes
+        """
         self.legal_moves = {}
         self.enemy_moves = {}  # A dictionary that contains the squares that are controlled by the opposite side of the
                                # current turn
         self.attacked_squares = {}  # A set that contains the items of the self.enemy_moves dictionary
 
-        # Check related attributes
+        """
+        Absolute pin related attributes
+        """
+        self.pin = []  # A list of squares that form a line which corresponds to the absolute pin (pin to the king) of
+                       # the current position. A position can only have 1 absolute pin.
+        self.pinned_piece = -1
+        self.en_passant_pinned = -1  # En passant pins are extremely rare cases where an en passant move causes the king
+                                     # to be exposed to an enemy attack, making the move illegal.
+
+        """
+        Check related attributes
+        """
         self.check = False
         self.checking_piece = -1  # The checking piece that can be captured to avoid check
                                   # -1 if king is not on check and -2 if it's a double check
@@ -151,6 +172,7 @@ class Position:
             self.load_fen(fen)
         else:
             self.update_moves()
+
     def generate_piece_moves(self, square: int, controlling_only=False):
         """
         Generate the legal squares a piece can move to
@@ -159,8 +181,13 @@ class Position:
         The tracer is an imaginary thing that goes from a piece to one straight direction (the offset) while marking the
         available squares a piece can go ("tracing" a line)
 
-        If controlling_only is True then it will only return the squares that a piece controls (defends and attacks)
+        :param square: The square index of the piece
+
+        :param controlling_only: A special parameter used for enemy moves calculation.
+        If controlling_only is True then it will only return the squares that a piece controls (defends and attacks).
         Pawn pushes are then excluded and other same color pieces that are defended by the given piece are included
+
+        :return: The squares the given piece can go to
 
         WARNING: This function is currently a logic hell
         """
@@ -174,7 +201,8 @@ class Position:
         # If true then the move must evade the check
         # If controlling_only is true then checks don't matter because the given piece is an enemy piece
 
-        assert piece in PIECE_TYPES, f"invalid piece \"{piece}\""
+        if piece not in PIECE_TYPES:
+            raise ValueError(f"invalid piece \"{piece}\"")
 
         for offset in MOVE_OFFSETS[piece_type]:
             tracer = square + offset
@@ -184,26 +212,34 @@ class Position:
             # pawn_push is True if the current offset is calculating a pawn push
             # pawn_capture is True if the current offset is calculating a pawn capture
 
-            if is_tracer_at_edge(square, offset) or (not pawn_capture and controlling_only and piece in ["P", "p"]):
+            if is_tracer_at_edge(square, offset) or (pawn_push and controlling_only):
                 # The starting position of the tracer is out of bounds
                 # or
-                # The current offset is only calculating attacks but the current offset is a pawn push offset
+                # controlling_only is True but the current offset is a pawn push offset
                 continue
 
             tracer_path = []
 
+            # Variables that are used to calculate absolute pins
+            pin_suspect = -1
+            squares_behind_suspect = []
+
+            searching_ep_pin = False
+            pin_suspect = -1
+
+            # Determine how far the tracer goes
             if piece_type in ("N", "K") or pawn_capture:
                 # Kings and knights can't move as far as they want
                 # Pawns can only capture 1 space diagonally in front of them
-                repeats = 1
-            elif piece_type in ("P", "p"):
+                trace_distance = 1
+            elif pawn_push:
                 # Pawns can either move 1 or 2 squares forward if they are on the 2nd or 7th rank and 1 square otherwise
-                repeats = 2 if square // 8 in (1, 6) else 1
+                trace_distance = 2 if square // 8 in (1, 6) else 1
             else:
                 # Queens, rooks, and bishops can move as far as they want
-                repeats = 7
+                trace_distance = 7
 
-            for _ in range(repeats):
+            for _ in range(trace_distance):
                 tracer_piece = self.board[tracer]
 
                 if tracer_piece and tracer != square:
@@ -215,18 +251,20 @@ class Position:
                     Continue tracing if the tracer piece is the enemy king and controlling_only is true, otherwise,
                     stop tracing
                     
-                    ===============================================================================================
-                    Determine whether the tracer piece should be appended to the return value or not (append_piece)
-                    ===============================================================================================
+                    ================================================================================
+                    Determine whether the tracer piece should be appended to the return value or not
+                    ================================================================================
                     
                     1. Opposite color pieces can be captured
 
                     2. Same color pieces can't be captured, but if controlling_only is true, the tracer piece is
-                       added to the return value because that piece supported by the current piece
+                       added to the return value because that piece is supported by the current piece
 
                     3. Pawns only can capture if the current offset is a pawn capture offset
                     
-                    4. While on check:
+                    4. If the piece is pinned to the king, it can only capture the pinning piece 
+                    
+                    5. While on check:
                         a. Pieces (except the king) cannot capture an enemy piece unless the piece captured is the one
                            who is checking the king.
                         b. The king can capture another piece while on check whether it's the checking piece or another
@@ -235,62 +273,141 @@ class Position:
                     different_color = tracer_piece.isupper() != piece.isupper()
                     stop_tracing = True
 
-
-
                     if (not must_evade_check and (different_color or controlling_only) and not pawn_push) or \
                             (must_evade_check and (piece_type != "K" and tracer == self.checking_piece) or
-                             (piece_type == "K" and tracer not in self.attacked_squares and different_color)):
-
-                        tracer_path.append(tracer)
+                             (piece_type == "K" and tracer not in self.attacked_squares and different_color)) and \
+                            (square != self.pinned_piece or tracer in self.pin):
 
                         if tracer_piece in ("K", "k") and different_color:
-                            """
-                            =====
-                            Check
-                            =====
-                            
-                            If one/two of the enemy pieces is attacking the king (the tracer reaches the enemy king)
-                            then it's a check
-                            """
+                            if pin_suspect == -1:
+                                """
+                                =====
+                                Check
+                                =====
+                                
+                                If one/two of the enemy pieces is attacking the king (the tracer reaches the enemy king)
+                                then it's a check
+                                """
 
-                            assert controlling_only, "one of the legal moves is capturing the king"
-                            # If one of the legal moves is directly capturing the king then something went wrong
+                                assert controlling_only, "one of the legal moves is capturing the king"
+                                # If one of the legal moves is directly capturing the king then something went wrong
 
-                            self.check = True
+                                self.check = True
 
-                            if self.checking_piece >= 0:
-                                # If there is already another checking piece, then it's a double check
-                                self.checking_piece = -2
-                                self.checking_piece = []
+                                if self.checking_piece >= 0:
+                                    # If there is already another checking piece, then it's a double check
+                                    self.checking_piece = -2
+                                    self.checking_piece = []
+                                else:
+                                    self.checking_piece = square
+                                    self.checking_path = tracer_path
+
+                                stop_tracing = False
+                                # The squares behind the king are also attacked by the current piece
+                                # Therefore, the king cannot move to those squares
+
                             else:
-                                self.checking_piece = square
-                                self.checking_path = tracer_path[:-1]
+                                """
+                                ============
+                                Absolute pin
+                                ============
+                                
+                                If the piece that is behind the pin suspect is the enemy king, then it is an absolute
+                                pin
+                                """
+                                if not searching_ep_pin:
+                                    self.pin = [square] + tracer_path + squares_behind_suspect
+                                    self.pinned_piece = pin_suspect
+                                    print("Absolute pin", self.pin, self.pinned_piece)
 
-                            stop_tracing = False
+                                else:
+                                    self.en_passant_pinned = pin_suspect
+
+                        if pin_suspect == -1:
+                            tracer_path.append(tracer)
+
+                            if controlling_only and different_color and self.pinned_piece == -1:
+                                """
+                                Absolute pin detection
+                                
+                                To search for absolute pins, the tracer will continue tracing behind the piece
+                                If the piece that is behind the tracer piece is the enemy king, then that tracer piece is
+                                pinned and cannot move. If the piece behind the tracer piece is not a king, then it's not
+                                an absolute pin.
+                                """
+                                pin_suspect = tracer
+                                stop_tracing = False
+
+                            if self.en_passantable != -1 and tracer_piece in ("P", "p") and square // 8 in (3, 4):
+                                """
+                                En passant absolute pin detection
+                                
+                                En passant pins are extremely rare cases where an en passant move causes the king to be
+                                exposed to an enemy attack, making the move illegal. If the tracer meets 2 pawns that
+                                are side to side on the 4th or 5th rank, and one of the two pawns can be captured by
+                                en passant, the tracer will continue tracing. If the first piece behind the two pawns is
+                                the enemy king, then the pawn cannot perform en passant as it will discover an attack
+                                to the king
+                                """
+
+                                front_pawn_square = tracer
+                                front_pawn = tracer_piece
+
+                                tracer += offset
+
+                                back_pawn_square = tracer
+                                back_pawn = self.board[tracer]
+
+                                stop_tracing = False
+                                searching_ep_pin = True
+
+                                if back_pawn in ("P", "p") and front_pawn.isupper() != back_pawn.isupper():
+                                    if abs(front_pawn_square - self.en_passantable) == 8:
+                                        pin_suspect = back_pawn_square
+
+                                    elif abs(back_pawn_square - self.en_passantable) == 8:
+                                        pin_suspect = front_pawn_square
+
+                                    else:
+                                        stop_tracing = True
+
+                                    print("en passant pin")
 
                     if stop_tracing:
                         break
 
                 elif (tracer != square and not pawn_capture) or \
-                        (pawn_capture and (tracer == self.en_passantable or controlling_only)):
+                        (pawn_capture and tracer == self.en_passantable and square != self.en_passant_pinned) or \
+                        (pawn_capture and controlling_only):
                     """
-                    ================
-                    Continue tracing
-                    ================
+                    ============================
+                    Tracer is on an empty square
+                    ============================
                     
                     1. Tracer is on an available empty square
                     2. Tracer is on the en passantable square: the given pawn can capture the pawn beside it
                     3. The current offset is a pawn capture offset and controlling_only is True
+                    4. If the tracer is a phantom tracer (tracing the squares behind an enemy piece), then the empty
+                       squares are appended to the squares_behind_suspect list
+                    5. If the piece is pinned to the king, then it can only move to the squares that doesn't break the
+                       pin. If one of the moves break a pin on a given offset, then the tracing path of that offset is
+                       already invalid.
                     
-                    4. While on check:
+                    6. While on check:
                         a. A piece (other than the king) can only move to an empty square that blocks the checking path.
                            For every offset of a piece, there is only a maximum of 1 possible blocking move.
                         b. The king can move to an empty square as long as that square isn't attacked by the enemy
                            pieces
                     """
 
-                    if (not must_evade_check and piece_type != "K") or \
-                            (controlling_only and pawn_capture) or \
+                    if pin_suspect != -1:
+                        squares_behind_suspect.append(tracer)
+
+                    elif square == self.pinned_piece and tracer not in self.pin:
+                        break
+
+                    elif (not must_evade_check and piece_type != "K") or \
+                            (controlling_only and not pawn_push) or \
                             (piece_type == "K" and tracer not in self.attacked_squares):
                         tracer_path.append(tracer)
 
@@ -336,12 +453,15 @@ class Position:
                all(not self.board[square] for square in squares_in_between) and \
                all(square not in self.attacked_squares for square in squares_after_castling)
 
-    @shared.func_timer
+    # @shared.func_timer
     def update_moves(self):
         # A position is not on check until proven otherwise
         self.check = False
         self.checking_piece = -1
         self.checking_path = []
+
+        self.pin = []
+        self.pinned_piece = -1
 
         white = [i for i, x in enumerate(self.board) if x.isupper()]
         black = [i for i, x in enumerate(self.board) if x.islower()]
@@ -361,21 +481,11 @@ class Position:
             return 0  # Illegal move
 
         piece = self.board[old]
-
-        # Halfmove clock handling
-        if piece in ("P", "p") or self.board[new]:
-            self.halfmove_clock = 0
-        else:
-            self.halfmove_clock += 1
+        captured_piece = self.board[new]
 
         # Move the piece
         self.board[new] = piece
         self.board[old] = ""
-
-        # Update turn
-        self.turn = not self.turn
-        if self.turn:
-            self.move_num += 1
 
         """
         En passant
@@ -389,7 +499,10 @@ class Position:
 
             elif new == self.en_passantable:
                 # If a pawn captures an en passantable square, capture the pawn behind
-                self.board[new + (-8 if piece == "p" else 8)] = ""
+                en_passanted_square = new + (-8 if piece == "p" else 8)
+
+                captured_piece = self.board[en_passanted_square]
+                self.board[en_passanted_square] = ""
 
         if not new_en_passantable:
             self.en_passantable = -1
@@ -413,6 +526,21 @@ class Position:
                     self.board[rook_new] = self.board[rook_old]
                     self.board[rook_old] = ""
 
+        """
+        Update turn, halfmove clock, and move number
+        """
+        if piece in ("P", "p") or captured_piece:
+            self.halfmove_clock = 0
+        else:
+            self.halfmove_clock += 1
+
+        self.turn = not self.turn
+        if self.turn:
+            self.move_num += 1
+
+        """
+        Update moves
+        """
         self.update_moves()
 
         # Testing stuff
@@ -490,6 +618,7 @@ class Position:
 class ChessGame(Position):
     """
     ChessGame is the subclass of Position that is used directly to the GUI of the app
+    There will be more additions to come, such as
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

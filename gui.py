@@ -9,7 +9,7 @@ LIGHT_SQUARE_COLOR = "#ffe4ad"
 
 
 class Piece:
-    PSG = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
+    psg = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
 
     def __init__(self, board: tk.Canvas, piece_type, square):
         if piece_type not in ruleset.PIECE_TYPES:
@@ -21,8 +21,8 @@ class Piece:
 
         self.square.piece = self
 
-        Piece.PSG.piece_size = int(self.square.size * 0.9)
-        sprite = Piece.PSG.piece_to_sprite(piece_type)
+        Piece.psg.piece_size = int(self.square.size * 0.9)
+        sprite = Piece.psg.piece_to_sprite(piece_type)
         self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor="center")
 
     def __int__(self):
@@ -67,7 +67,7 @@ class Square:
                                                   fill=self.default_color, outline="")
 
         # Debug text that shows the index of the square
-        board.create_text(x * size + 10, y * size + 10, text=i)
+        # board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
         return self.canvas_item
@@ -215,15 +215,18 @@ class MainWindow(tk.Tk):
         self.configure(bg=BG_COLOR)
         self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
-        # self.wm_attributes("-fullscreen", True)  # Fullscreen
+        self.wm_attributes("-fullscreen", True)  # Fullscreen
         # self.state("zoomed")  # Maximized
 
         # Testing stuff
+        fen = ""
         # fen = "r4k2/p1pnqp2/1p1b3p/8/2pP2Q1/1P3NP1/P3r2P/R1B2RK1 w - - 1 23"
         # fen = "8/8/8/8/8/pk2n3/8/K7 b - - 3 65"
         # fen = "8/8/8/8/3q1k2/8/2n5/5K2 b - - 13 74"
+        # fen = "7k/5p2/8/K3P1r1/8/8/8/8 b - - 0 1"
+        # fen = "7k/3p4/8/K3P1r1/8/8/8/8 b - - 0 1"
 
-        self.game = ruleset.ChessGame()
+        self.game = ruleset.ChessGame(fen)
 
         self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
         self.game.board_gui = self.board
