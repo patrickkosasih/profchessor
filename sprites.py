@@ -7,6 +7,13 @@ import os
 import json
 
 
+def create_translucent_rectangle(width, height, opacity: float, color=(0, 0, 0)):
+    image = Image.new("RGBA", (width, height), (*color, int(opacity * 255)))
+    photoimage = ImageTk.PhotoImage(image)
+
+    return photoimage
+
+
 class SpriteGroup:
     """
     SpriteGroup is used to create a PhotoImage object and store it on a dictionary

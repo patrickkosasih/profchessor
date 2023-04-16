@@ -67,7 +67,7 @@ class Square:
                                                   fill=self.default_color, outline="")
 
         # Debug text that shows the index of the square
-        # board.create_text(x * size + 10, y * size + 10, text=i)
+        board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
         return self.canvas_item
@@ -85,32 +85,56 @@ class Square:
         return (self.i % 8 + 0.5) * self.size, (self.i // 8 + 0.5) * self.size
 
 
+class PromotionPrompt:
+    def __init__(self, board, square: Square):
+        pass
+
+
 class Board(tk.Canvas):
     def __init__(self, root, game, size, **kw):
         super(Board, self).__init__(root, width=size, height=size, highlightthickness=0, **kw)
 
+        """
+        Attributes from the passed in arguments
+        """
         self.game = game
         self.root = root
         self.board_size = int(size)
         self.square_size = self.board_size / 8
 
+        """
+        General GUI attributes
+        """
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
+        self.flipped = False
+        self.sg = sprites.SpriteGroup()
+        self.translucent_fg = None
 
-        # Drag and drop stuff
+        """
+        Drag and drop attributes
+        """
         self.dragging = None  # Piece that's currently being dragged
-        self.legal_move_markers = []
+        self.move_markers = []
 
-        self.reset_board(self.game.board)
+        self.promotion_prompt = None
 
-        # Mouse events
+        """
+        Bind mouse events
+        """
         self.bind("<Button-1>", self.mouse_click)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
         self.bind("<Button-3>", self.right_mouse_click)
 
-        # Test stuff
-        # self.one_piece = Piece(self, "B", self.squares[0])
+        self.reset_board(self.game.board)
 
+        # Test stuff
+        # pixel_thing = self.sg.open("sprites/translucent pixel thing.png", size=2 * (self.board_size,))
+        # self.fg_thing = self.create_image(0, 0, image=pixel_thing, anchor="nw")
+
+    """
+    General GUI methods for a chess board
+    """
     def reset_board(self, board_data: list[64]):
         if self.dragging:
             self.delete(self.dragging.canvas_item)
@@ -127,6 +151,10 @@ class Board(tk.Canvas):
     def output_move(self, piece, new_square):
         # Coming soon: move a piece without the player's control when playing against the computer or another player
         pass
+
+    """
+    Misc GUI methods
+    """
 
     """
     Drag and drop related methods
@@ -152,21 +180,27 @@ class Board(tk.Canvas):
             self.dragging.move_to_square(self.dragging.square)
             self.dragging = None
 
-    def mark_legal_moves(self, square: int):
-        r = 5
+    def mark_moves(self, square: int):
+        size = int(self.square_size)
 
         if square in self.game.legal_moves:
             for move_to in self.game.legal_moves[square]:
                 x, y = self.squares[move_to].get_center()
-                marker = self.create_oval(x - r, y - r, x + r, y + r, fill="white", outline="black")
 
-                self.legal_move_markers.append(marker)
+                if self.squares[move_to].piece:
+                    image = self.sg.open("sprites/capture marker.png", size=(size, size))
+                else:
+                    image = self.sg.open("sprites/move marker.png", size=(size, size))
 
-    def unmark_legal_moves(self):
-        for x in self.legal_move_markers:
+                marker = self.create_image(x, y, image=image, anchor="center")
+
+                self.move_markers.append(marker)
+
+    def unmark_moves(self):
+        for x in self.move_markers:
             self.delete(x)
 
-        self.legal_move_markers = []
+        self.move_markers = []
 
     """
     Mouse event methods
@@ -176,7 +210,7 @@ class Board(tk.Canvas):
 
         if self.dragging:
             self.dragging.move_center(event.x, event.y)
-            self.mark_legal_moves(self.dragging.square.i)
+            self.mark_moves(self.dragging.square.i)
             self.lift(self.dragging.canvas_item)  # Order dragging piece to the topmost layer
 
     def mouse_motion(self, event):
@@ -185,7 +219,7 @@ class Board(tk.Canvas):
 
     def mouse_release(self, event):
         cancel_move = True
-        self.unmark_legal_moves()
+        self.unmark_moves()
 
         if self.dragging:
             new_square = self.get_square_on_pos(event.x, event.y)
@@ -193,7 +227,11 @@ class Board(tk.Canvas):
             if new_square:
                 move_result = self.game.move(self.dragging.square.i, new_square.i)
 
-                if move_result != 0:
+                if move_result == ruleset.MoveResults.ILLEGAL:
+                    pass
+                elif move_result == ruleset.MoveResults.PROMPT_PROMOTION:
+                    pass
+                else:
                     self.move_piece(new_square)
                     cancel_move = False
 
@@ -202,7 +240,7 @@ class Board(tk.Canvas):
 
 
     def right_mouse_click(self, event):
-        self.unmark_legal_moves()
+        self.unmark_moves()
 
         if self.dragging:
             self.cancel_move()
@@ -213,9 +251,10 @@ class MainWindow(tk.Tk):
         self.title("Profchessor")
         self.geometry("800x800")
         self.configure(bg=BG_COLOR)
-        self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
+        self.iconbitmap("sprites/icon.ico")
+        # self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
-        self.wm_attributes("-fullscreen", True)  # Fullscreen
+        # self.wm_attributes("-fullscreen", True)  # Fullscreen
         # self.state("zoomed")  # Maximized
 
         # Testing stuff
@@ -225,6 +264,8 @@ class MainWindow(tk.Tk):
         # fen = "8/8/8/8/3q1k2/8/2n5/5K2 b - - 13 74"
         # fen = "7k/5p2/8/K3P1r1/8/8/8/8 b - - 0 1"
         # fen = "7k/3p4/8/K3P1r1/8/8/8/8 b - - 0 1"
+        # fen = "r2qkbnr/pp1npppp/2p1b3/3p4/7N/1P2P3/PBPP1PPP/RN1QKB1R w KQkq - 3 6"
+        # fen = "r1b3k1/pp3pp1/3B4/3p1P1p/8/1P1P1N1P/P2P1qP1/4R2K w - - 2 26"
 
         self.game = ruleset.ChessGame(fen)
 
