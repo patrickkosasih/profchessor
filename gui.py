@@ -1,6 +1,7 @@
 import tkinter as tk
 
 import ruleset
+import shared
 import sprites
 
 BG_COLOR = "#2b3030"
@@ -67,7 +68,8 @@ class Square:
                                                   fill=self.default_color, outline="")
 
         # Debug text that shows the index of the square
-        board.create_text(x * size + 10, y * size + 10, text=i)
+        if shared.DEBUG_LEVEL:
+            board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
         return self.canvas_item
@@ -175,6 +177,8 @@ class Board(tk.Canvas):
             self.dragging.move_to_square(new_square)
             self.dragging = None
 
+            self.reset_board(self.game.board)  # Soon to be replaced when gui.Board.output_move works
+
     def cancel_move(self):
         if self.dragging:
             self.dragging.move_to_square(self.dragging.square)
@@ -227,11 +231,7 @@ class Board(tk.Canvas):
             if new_square:
                 move_result = self.game.move(self.dragging.square.i, new_square.i)
 
-                if move_result == ruleset.MoveResults.ILLEGAL:
-                    pass
-                elif move_result == ruleset.MoveResults.PROMPT_PROMOTION:
-                    pass
-                else:
+                if ruleset.MoveResults.is_move_made(move_result):
                     self.move_piece(new_square)
                     cancel_move = False
 
@@ -252,10 +252,10 @@ class MainWindow(tk.Tk):
         self.geometry("800x800")
         self.configure(bg=BG_COLOR)
         self.iconbitmap("sprites/icon.ico")
-        # self.wm_iconphoto(False, tk.PhotoImage(file="sprites/pieces/black pawn.png"))
 
-        # self.wm_attributes("-fullscreen", True)  # Fullscreen
-        # self.state("zoomed")  # Maximized
+        if not shared.DEBUG_LEVEL:
+            self.wm_attributes("-fullscreen", True)  # Fullscreen
+            # self.state("zoomed")  # Maximized
 
         # Testing stuff
         fen = ""
@@ -266,6 +266,7 @@ class MainWindow(tk.Tk):
         # fen = "7k/3p4/8/K3P1r1/8/8/8/8 b - - 0 1"
         # fen = "r2qkbnr/pp1npppp/2p1b3/3p4/7N/1P2P3/PBPP1PPP/RN1QKB1R w KQkq - 3 6"
         # fen = "r1b3k1/pp3pp1/3B4/3p1P1p/8/1P1P1N1P/P2P1qP1/4R2K w - - 2 26"
+        # fen = "7k/pr4p1/2n1N2p/b2N1Q2/2BP4/P3P2P/5RP1/2KR4 w - - 1 29"
 
         self.game = ruleset.ChessGame(fen)
 

@@ -2,8 +2,22 @@ import time
 import colorsys
 
 
+DEBUG_LEVEL = 1
+"""
+DEBUG_LEVEL is a constant that can be changed by the developer before running the program to enable and disable certain
+debugging tools without repeatedly commenting and uncommenting parts of the code.
+
+Currently, different debug levels do the following:
+0: Debug off, fullscreen mode
+1: Windowed, minimized, and visible index numbers on squares
+2: Print legal moves and enemy controlled squares on the console
+"""
+
+
 def func_timer(func):
-    # A decorator to measure the time taken to run a function
+    """
+    A decorator function that measures the time taken to run a function
+    """
     def wrapper(*args, **kwargs):
         time_before = time.perf_counter()
         ret = func(*args, **kwargs)  # Call function
@@ -17,7 +31,13 @@ def func_timer(func):
 
 def hsv_factor(rgb, hf, sf, vf):
     """
-    :param rgb: The RGB value in tuple or #RRGGBB format
+    Takes a 24 bit RGB value and changes it according to the given HSV factors (hue, saturation, and value)
+
+    :param rgb: The RGB value can be in tuple (e.g. (255, 255, 255)) or a string with the "#RRGGBB" format
+
+    :param hf: Hue factor
+    :param sf: Saturation factor
+    :param vf: Value (brightness) factor
     """
 
     if type(rgb) is str:

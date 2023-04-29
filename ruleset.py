@@ -32,13 +32,14 @@ Terms that are used throughout the module:
                       encountered is referred to as a pin suspect. On code, the pin suspect's square index is saved to
                       a variable called pin_suspect. More of pin suspects on phantom tracers' explanation.
 
-* Phantom tracer    : Phantom tracers are related to pin suspects. When the tracer encounters an enemy piece while the
-                      controlling_only parameter is set to True, the tracer becomes a phantom tracer and continues
-                      tracing. Phantom tracers don't append empty squares to the tracer path, instead it appends it to
-                      another list called squares_behind_suspect. When a phantom tracer reaches the enemy king, the
-                      previously saved pin suspect has been confirmed to be pinned to the king. When a phantom tracer
-                      meets a piece other than the enemy king, it stops tracing. On code, a tracer is a phantom tracer
-                      when the pin_suspect variable is not -1.
+* Phantom tracer    : Phantom tracers are related to pin suspects. The phantom tracer system is used to detect absolute
+                      pins. When the tracer encounters an enemy piece while the controlling_only parameter is set to
+                      True, the tracer becomes a phantom tracer and continues tracing. Phantom tracers don't append
+                      empty squares to the tracer path, instead it appends it to another list called
+                      squares_behind_suspect. When a phantom tracer reaches the enemy king, the previously saved pin
+                      suspect has been confirmed to be pinned to the king. When a phantom tracer meets a piece other
+                      than the enemy king, it stops tracing. On code, a tracer is a phantom tracer when the pin_suspect
+                      variable is not -1.
 
 * En passantable    : When a pawn moves 2 squares forward from its starting position, the square directly behind that
                       pawn becomes an en passantable square. An enemy pawn can then capture diagonally to the en
@@ -135,18 +136,64 @@ The numbers inside the lists refer to the following:
 
 class MoveResults:
     """
-    MoveResults is a class containing the constants to classify a move result, which is returned by the move method on
-    the Position class.
+    MoveResults is a class containing the functions and constants to classify a move result that is returned by the
+    move method on the Position class.
 
     This class only acts as a namespace and should not be instantiated as an object instance
     """
-    ILLEGAL = 0
+
+    # Move made
     MOVE = 1
     CAPTURE = 2
     CASTLE = 3
     EN_PASSANT = 4
     PROMOTION = 5
-    PROMPT_PROMOTION = 6
+
+    # Move not made
+    ILLEGAL = 0
+    PROMPT_PROMOTION = -1
+    GAME_ALREADY_ENDED = -2
+
+    # Check and game over
+    # These values are added to the move result values from above
+    CHECK = 8
+    GAME_OVER = 16
+
+    @staticmethod
+    def is_check(x):
+        return (x & MoveResults.CHECK) // MoveResults.CHECK and x > 0
+
+    @staticmethod
+    def is_game_over(x):
+        return (x & MoveResults.GAME_OVER) // MoveResults.GAME_OVER and x > 0
+
+    @staticmethod
+    def is_move_made(x):
+        return x > 0
+
+
+class GameResult:
+    # Winner
+    DRAW = 0
+    BLACK_WINS = -1
+    WHITE_WINS = 1
+
+    # Game result details   : Decisive result (win and loss)
+    CHECKMATE = 0
+    RESIGNATION = 1
+    TIMEOUT = 2
+
+    # Game result details   : Draw
+    STALEMATE = 3
+    DRAW_AGREEMENT = 4
+    REPETITION = 5
+    FIFTY_MOVE = 6
+    INSUFFICIENT_MATERIAL = 7
+    TIMEOUT_AND_INSUFFICIENT = 8
+
+    def __init__(self, winner, details):
+        self.winner = winner
+        self.details = details
 
 
 """
@@ -225,7 +272,7 @@ class Position:
         """"""
 
         """
-        Standard chess position properties (according to FEN)
+        Standard FEN chess position properties
         """
         self.board = STARTING_BOARD.copy()
         self.turn = True  # True: white's turn, False: black's turn
@@ -237,7 +284,8 @@ class Position:
         """
         More chess position properties
         """
-        self.transposition_table = {}  # For detecting draws by repetition
+        self.game_result = None
+        self.repetitions = {}  # Dictionary of how many times a position (in Zobrist hash) has been reached
 
         """
         Legal move generation attributes
@@ -367,9 +415,6 @@ class Position:
                     The tracer has encountered another piece
                     ========================================
                     
-                    Continue tracing if the tracer piece is the enemy king and controlling_only is true, otherwise,
-                    stop tracing
-                    
                     Determine whether the tracer piece should be appended to the return value or not:
                     
                     1. Opposite color pieces can be captured.
@@ -392,18 +437,12 @@ class Position:
                     
                     1. If the tracer piece is the enemy king (controlling_only must be true), continue tracing, because
                        the squares behind the enemy king are also attacked and the enemy king cannot go there.
+                       
                     2. If the tracer piece is an enemy piece, the tracer continues tracing and becomes a "phantom
                        tracer" by having pin_suspect set to a number other than -1.
                     """
                     different_color = tracer_piece.isupper() != piece.isupper()
                     stop_tracing = True
-
-                    # old stuff
-                    # if (square not in self.pinned_pieces or tracer in self.pins) and controlling_only or \
-                    #         (not must_evade_check and different_color and ((piece_type != "K" and not pawn_push) or
-                    #          piece_type == "K" and different_color and tracer not in self.attacked_squares)) or \
-                    #         (must_evade_check and ((piece_type != "K" and tracer == self.checking_piece) or
-                    #          (piece_type == "K" and tracer not in self.attacked_squares and different_color))):
 
                     if (square not in self.pinned_pieces or tracer in self.pins) and \
                         (controlling_only or (different_color and not pawn_push and (
@@ -611,14 +650,21 @@ class Position:
 
         self.legal_moves = {square: self.generate_piece_moves(square) for square in (white if self.turn else black)}
 
-        # print()
-        # print("Legal moves", self.legal_moves)
-        # print("Attacked", self.enemy_moves)
+        if shared.DEBUG_LEVEL >= 2:
+            print(f"Move {self.move_num} for {'white' if self.turn else 'black'}")
+            print("  Legal moves:", self.legal_moves)
+            print("  Attacked:", self.enemy_moves)
+            print()
 
+    # @shared.func_timer
     def move(self, old: int, new: int, promote_to=None):
         if old not in self.legal_moves or new not in self.legal_moves[old]:
             return MoveResults.ILLEGAL
 
+        elif self.game_result:
+            return MoveResults.GAME_ALREADY_ENDED
+
+        # Get piece and captured piece if exists
         piece = self.board[old]
         captured_piece = self.board[new]
 
@@ -626,6 +672,8 @@ class Position:
             # If the pawn reached the other side, then it's a pawn promotion. If the move is a pawn promotion and the
             # piece to promote to is still not determined, then the move is not made
             return MoveResults.PROMPT_PROMOTION
+
+        move_result = MoveResults.MOVE  # Return value
 
         # Move the piece
         self.board[new] = piece
@@ -647,6 +695,8 @@ class Position:
 
                 captured_piece = self.board[en_passanted_square]
                 self.board[en_passanted_square] = ""
+
+                move_result = MoveResults.EN_PASSANT
 
         if not new_en_passantable:
             self.en_passantable = -1
@@ -670,6 +720,8 @@ class Position:
                     self.board[rook_new] = self.board[rook_old]
                     self.board[rook_old] = ""
 
+                    move_result = MoveResults.CASTLE
+
         """
         Update turn, halfmove clock, and move number
         """
@@ -688,22 +740,36 @@ class Position:
         """
         self.update_moves()
 
-        # Testing stuff
-        # if self.check:
-        #     print("Check!")
+        """
+        Update return value for captures and check
+        """
+        if captured_piece and move_result != MoveResults.EN_PASSANT:
+            move_result = MoveResults.CAPTURE
 
-        # if all(len(x) == 0 for x in self.legal_moves.values()):
-        #     if self.check:
-        #         winner = "black" if self.turn else "white"
-        #         print(f"Checkmate! {winner} wins!")
-        #     else:
-        #         print("Draw by stalemate")
+        if self.check:
+            move_result += MoveResults.CHECK
 
+        """
+        Game over detection
+        """
+        move_result += MoveResults.GAME_OVER
+        # Temporarily adds the move result with MoveResult.GAME_OVER
+        # If the game is not over then the value is subtracted back
 
-        # print(self.legal_moves)
-        # print(self.checking_path)
+        if all(len(x) == 0 for x in self.legal_moves.values()):
+            if self.check:
+                self.game_result = GameResult(winner=GameResult.BLACK_WINS if self.turn else GameResult.WHITE_WINS,
+                                              details=GameResult.CHECKMATE)
+            else:
+                self.game_result = GameResult(GameResult.DRAW, GameResult.STALEMATE)
 
-        return 1
+        elif self.halfmove_clock >= 100:
+            self.game_result = GameResult(GameResult.DRAW, GameResult.FIFTY_MOVE)
+
+        else:
+            move_result -= MoveResults.GAME_OVER
+
+        return move_result
 
     def load_fen(self, fen: str):
         board_raw, turn, castling_rights, en_passantable, halfmove_clock, move_num = fen.split()
@@ -767,6 +833,10 @@ class Position:
 
     # @shared.func_timer
     def search(self, depth: int):
+        """
+        Returns how many positions (nodes) are possible after a given number of moves (depth)
+        """
+
         if depth <= 1:
             return sum(len(x) for x in self.legal_moves.values())
 
@@ -783,16 +853,17 @@ class Position:
 
 class ChessGame(Position):
     """
-    ChessGame is the subclass of Position that is used directly to the GUI of the app
-    There will be more additions to come, such as undoing, redoing, and self moves by the computer or online matches
+    ChessGame is the subclass of Position with additional properties that would only be in an ongoing chess match
+    such as undoing, move history, resigning, etc
     """
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.board_gui = None
-
+        # ChessGame subclass attributes
         self.position_history = []
         self.move_history = []
+
+        self.position_history.append(self.copy())
 
         # Testing stuff
         # for i in range(1, 9):
@@ -800,19 +871,127 @@ class ChessGame(Position):
         #     print(f"depth: {i}, result: {self.search(i)}, time: {time.perf_counter() - time_before} seconds")
 
     def move(self, old: int, new: int, promote_to=None):
+        if old in self.legal_moves and new in self.legal_moves[old]:
+            print(f"{self.move_num}{'.' if self.turn else '...'} {self.algebraic(old, new, auto_detect_check=True)}")
+
         move_result = super().move(old, new, promote_to)
 
-        if self.board_gui:
-            self.board_gui.reset_board(self.board)  # Soon to be replaced when gui.Board.output_move works
+        """"
+        Basic check and checkmate/stalemate indicator
+        Will be changed to something better when the GUI is done
+        """
+        if MoveResults.is_game_over(move_result):
+            match self.game_result.details:
+                case GameResult.CHECKMATE:
+                    winner = "Black" if self.turn else "White"
+                    print(f"Checkmate! {winner} wins!")
+
+                case GameResult.STALEMATE:
+                    print("Stalemate! It's a draw!")
+
+        elif MoveResults.is_check(move_result):
+            print("Check!")
+
+        self.position_history.append(self.copy())
 
         return move_result
 
+    def algebraic(self, old: int, new: int, promote_to="", auto_detect_check=False):
+        """
+        Returns the algebraic notation of a move (for example e4, Ke2, Qf7, etc.)
 
-# Testing stuff
+        This function should be called before a move is made in the current position.
+        """
+        ret = ""
 
-# thing1 = ChessGame()
-# thing2 = thing1.copy()
-#
-# print(thing1)
-# print(thing2)
-# print(thing2.__dict__)
+        piece = self.board[old]
+        piece_type = piece.upper()
+
+        en_passant = piece_type == "P" and new == self.en_passantable
+        capture = self.board[new] != "" or en_passant
+
+        old_coor = i_to_coordinate(old)
+        new_coor = i_to_coordinate(new)
+
+
+        """
+        1. Piece type
+        
+        The moving pieces (other than pawns) are identified by an uppercase letter. Pawns are identified by the file
+        it's on before moving (only on pawn captures).
+        """
+        if piece_type != "P":
+            ret += piece_type
+        elif capture:
+            ret += i_to_coordinate(old)[0]
+
+        """
+        2. Disambiguating moves
+        
+        If more than one piece of the same type can move to the destination square, then the move notation identifies
+        which piece is moved by using the moving piece's file, rank, or coordinate (in order from highest to lowest
+        priority).
+        """
+        if piece_type != "P":
+            disambiguate = False
+            different_files = True
+            different_ranks = True
+
+            for other_piece_square, other_legal_squares in self.legal_moves.items():
+                other_piece = self.board[other_piece_square]
+
+                if other_piece == piece and other_piece_square != old and new in other_legal_squares:
+                    disambiguate = True
+                    other_coor = i_to_coordinate(other_piece_square)
+
+                    if old_coor[0] == other_coor[0]:
+                        different_files = False
+
+                    if old_coor[1] == other_coor[1]:
+                        different_ranks = False
+
+            if disambiguate:
+                if different_files:
+                    ret += old_coor[0]
+                elif different_ranks:
+                    ret += old_coor[1]
+                else:
+                    ret += old_coor
+
+        """
+        3. Capture ("x")
+        
+        If the move is a capture, then an "x" is added before the coordinate of the new square
+        """
+        if capture:
+            ret += "x"
+
+        """
+        4. The coordinate of new square
+        """
+        ret += new_coor
+
+        """
+        5. Pawn promotion ("=_")
+        
+        Pawn promotion moves are notated by adding "=(the piece it promotes to)".
+        """
+        if promote_to:
+            ret += f"={promote_to.upper()}"
+
+        """
+        6. Check ("+"), checkmate ("#"), and en passant ("e.p.")
+        """
+        if en_passant:
+            ret += " e.p."
+
+        if auto_detect_check:
+            moved = self.copy()
+            moved.move(old, new)
+
+            if moved.game_result and moved.game_result.details == GameResult.CHECKMATE:
+                ret += "#"
+            elif moved.check:
+                ret += "+"
+
+        return ret
