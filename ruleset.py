@@ -237,7 +237,7 @@ def is_tracer_at_edge(tracer, offset):
     """
     This function is used on generating moves on a piece
 
-    On sliding pieces (rooks, bishops, and queens), when the current "tracer" is on the edge of a board, and it goes out
+    On sliding pieces (rooks, bishops, and queens), when the current tracer is on the edge of a board, and it goes out
     of bound if added a certain offset value, this function returns False and serves as a cue for the tracer to stop
     generating moves for the current direction of tracing
 
@@ -265,7 +265,7 @@ class Position:
 
     ATTRIBUTES = []
     """
-    A list containing all the names of the attributes of this class. Used for copying.
+    A list containing all the names of the attributes of this class. Used for copying instances of the Position class.
     """
 
     def __init__(self, fen=None, load_from=None):
@@ -284,6 +284,7 @@ class Position:
         """
         More chess position properties
         """
+
         self.game_result = None
         self.repetitions = {}  # Dictionary of how many times a position (in Zobrist hash) has been reached
 
@@ -658,25 +659,33 @@ class Position:
 
     # @shared.func_timer
     def move(self, old: int, new: int, promote_to=None):
+        """
+        Move a piece and update the current position
+        """
+
         if old not in self.legal_moves or new not in self.legal_moves[old]:
             return MoveResults.ILLEGAL
 
         elif self.game_result:
             return MoveResults.GAME_ALREADY_ENDED
 
-        # Get piece and captured piece if exists
+        # Get piece and captured (piece on destination square)
         piece = self.board[old]
         captured_piece = self.board[new]
 
-        if piece in ("P", "p") and new // 8 in (0, 8) and promote_to is None:
+        pawn_promotion = piece in ("P", "p") and new // 8 in (0, 7)
+
+        if pawn_promotion and promote_to is None:
             # If the pawn reached the other side, then it's a pawn promotion. If the move is a pawn promotion and the
             # piece to promote to is still not determined, then the move is not made
             return MoveResults.PROMPT_PROMOTION
 
         move_result = MoveResults.MOVE  # Return value
 
-        # Move the piece
-        self.board[new] = piece
+        """
+        Move the piece / promote the pawn
+        """
+        self.board[new] = piece if not pawn_promotion else promote_to
         self.board[old] = ""
 
         """
@@ -779,7 +788,7 @@ class Position:
         rows = board_raw.split("/")
 
         if len(rows) != 8:
-            raise ValueError(f"board only consists of {rows} rows (expected: 8)")
+            raise ValueError(f"board string consists of {rows} rows (expected: 8)")
 
         for row in rows:
             decoded_row = []
@@ -792,7 +801,7 @@ class Position:
                     raise ValueError(f"invalid FEN piece character \"{x}\" on row {row}")
 
             if len(decoded_row) != 8:
-                raise ValueError(f"row {row} is only {len(decoded_row)} long (expected: 8)")
+                raise ValueError(f"row {row} is {len(decoded_row)} squares long (expected: 8)")
 
             decoded_board += decoded_row
 
@@ -834,7 +843,7 @@ class Position:
     # @shared.func_timer
     def search(self, depth: int):
         """
-        Returns how many positions (nodes) are possible after a given number of moves (depth)
+        Returns how many positions (leaf nodes) there are in the move generation tree of a given depth
         """
 
         if depth <= 1:
@@ -872,7 +881,8 @@ class ChessGame(Position):
 
     def move(self, old: int, new: int, promote_to=None):
         if old in self.legal_moves and new in self.legal_moves[old]:
-            print(f"{self.move_num}{'.' if self.turn else '...'} {self.algebraic(old, new, auto_detect_check=True)}")
+            print(f"{self.move_num}{'.' if self.turn else '...'} "
+                  f"{self.algebraic(old, new, promote_to, auto_detect_check=True)}")
 
         move_result = super().move(old, new, promote_to)
 
@@ -884,10 +894,13 @@ class ChessGame(Position):
             match self.game_result.details:
                 case GameResult.CHECKMATE:
                     winner = "Black" if self.turn else "White"
-                    print(f"Checkmate! {winner} wins!")
+                    print(f"Checkmate: {winner} wins!")
 
                 case GameResult.STALEMATE:
-                    print("Stalemate! It's a draw!")
+                    print("Stalemate: It's a draw!")
+
+                case GameResult.FIFTY_MOVE:
+                    print("Fifty move rule: It's a draw!")
 
         elif MoveResults.is_check(move_result):
             print("Check!")

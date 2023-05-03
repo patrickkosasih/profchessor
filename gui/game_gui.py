@@ -2,17 +2,18 @@ import tkinter as tk
 
 import ruleset
 import shared
-import sprites
+from gui import sprites, shared_gui
 
 BG_COLOR = "#2b3030"
 DARK_SQUARE_COLOR = "#855313"
 LIGHT_SQUARE_COLOR = "#ffe4ad"
+DEFAULT_FADER_COLOR = "#14110a"
 
 
 class Piece:
-    psg = sprites.PieceSpriteGroup("sprites/pieces/piece_map.json")
+    psg = sprites.PieceSpriteGroup("data/sprites/pieces/piece_map.json")
 
-    def __init__(self, board: tk.Canvas, piece_type, square):
+    def __init__(self, board: tk.Canvas, piece_type, square, bind_to_square=True):
         if piece_type not in ruleset.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
@@ -20,11 +21,12 @@ class Piece:
         self.board = board
         self.square = square
 
-        self.square.piece = self
+        if bind_to_square:
+            self.square.piece = self
 
         Piece.psg.piece_size = int(self.square.size * 0.9)
         sprite = Piece.psg.piece_to_sprite(piece_type)
-        self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor="center")
+        self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor=tk.CENTER)
 
     def __int__(self):
         return self.canvas_item
@@ -51,6 +53,15 @@ class Piece:
 
         new_square.piece = self
         old_square.piece = None
+
+    def set_piece_type(self, piece_type):
+        self.piece_type = piece_type
+
+        sprite = Piece.psg.piece_to_sprite(piece_type)
+        self.board.itemconfig(self.canvas_item, image=sprite)
+
+    def set_hidden(self, hidden):
+        self.board.itemconfig(self.canvas_item, state="hidden" if hidden else "normal")
 
 
 class Square:
@@ -88,8 +99,90 @@ class Square:
 
 
 class PromotionPrompt:
-    def __init__(self, board, square: Square):
-        pass
+    WHITE_PIECES = ("Q", "R", "N", "B")
+    BLACK_PIECES = ("q", "r", "n", "b")
+
+    LIGHT_FRAME_COLOR = "#e8ddc3"
+    DARK_FRAME_COLOR = "#544123"
+
+    def __init__(self, board, new_square: Square, pawn: Piece):
+        assert pawn.piece_type in ("P", "p"), "piece must be a pawn"
+        assert new_square.i // 8 in (0, 7), "pawn must be in the topmost or bottommost rank"
+
+        """
+        Attributes from passed in arguments
+        """
+        self.board = board
+        self.new_square = new_square
+        self.pawn = pawn
+
+        """
+        Configure board
+        """
+        self.pawn.set_hidden(True)
+        board.set_fader(0.3)
+        board.enable_drag_and_drop = False
+
+        """
+        Piece buttons
+        """
+        # Determine the color of the piece buttons and the offset
+        if pawn.piece_type.isupper():
+            # White
+            pieces_by_color = PromotionPrompt.WHITE_PIECES
+            frame_color = PromotionPrompt.DARK_FRAME_COLOR
+            offset = 8
+        else:
+            # Black
+            pieces_by_color = PromotionPrompt.BLACK_PIECES
+            frame_color = PromotionPrompt.LIGHT_FRAME_COLOR
+            offset = -8
+
+        self.button_frame_photo = shared_gui.translucent_rectangle(0.9, board.square_size,board.square_size, frame_color)
+        self.pieces = {}
+        self.button_frames = {}  # The button frames are just faded rectangles
+
+        for i, piece in zip(range(new_square.i, new_square.i + offset * 4, offset), pieces_by_color):
+            self.button_frames[i] = board.create_image(*board.squares[i].get_center(),
+                                                       image=self.button_frame_photo, anchor=tk.CENTER)
+            self.pieces[i] = Piece(board, piece, board.squares[i], bind_to_square=False)
+
+    def mouse_click(self, clicked_square: Square):
+        if clicked_square and clicked_square.i in self.pieces:
+            new_piece_type = self.pieces[clicked_square.i].piece_type
+
+            """
+            Make the move on the ChessGame
+            """
+            move_result = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i, promote_to=new_piece_type)
+
+            """
+            Configure the pawn GUI:
+            Move the GUI pawn, turn it into the new piece type, and unhide it
+            """
+            self.pawn.move_to_square(self.new_square)
+            self.pawn.set_piece_type(new_piece_type)
+            self.pawn.set_hidden(False)
+
+        else:
+            """
+            The mouse clicks outside the promotion buttons: Cancel the promotion move
+            """
+            self.pawn.set_hidden(False)
+
+        """
+        Delete all the buttons of the promotion prompt
+        """
+        for frame, piece in zip(self.button_frames.values(), self.pieces.values()):
+            self.board.delete(frame)
+            self.board.delete(piece.canvas_item)
+
+        """
+        Configure board
+        """
+        self.board.set_fader(0)
+        self.board.enable_drag_and_drop = True
+        self.board.promotion_prompt = None  # "Delete" self
 
 
 class Board(tk.Canvas):
@@ -102,7 +195,7 @@ class Board(tk.Canvas):
         self.game = game
         self.root = root
         self.board_size = int(size)
-        self.square_size = self.board_size / 8
+        self.square_size = self.board_size // 8
 
         """
         General GUI attributes
@@ -110,20 +203,21 @@ class Board(tk.Canvas):
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
         self.flipped = False
         self.sg = sprites.SpriteGroup()
-        self.translucent_fg = None
+
+        self.fader = None
+        self.promotion_prompt = None
 
         """
         Drag and drop attributes
         """
+        self.enable_drag_and_drop = True
         self.dragging = None  # Piece that's currently being dragged
         self.move_markers = []
-
-        self.promotion_prompt = None
 
         """
         Bind mouse events
         """
-        self.bind("<Button-1>", self.mouse_click)
+        self.bind("<Button-1>", self.mouse_down)
         self.bind("<B1-Motion>", self.mouse_motion)
         self.bind("<ButtonRelease-1>", self.mouse_release)
         self.bind("<Button-3>", self.right_mouse_click)
@@ -157,10 +251,42 @@ class Board(tk.Canvas):
     """
     Misc GUI methods
     """
+    def set_fader(self, opacity):
+        translucent_fg = self.sg.add_photo("translucent_fg",
+                                           shared_gui.translucent_rectangle(opacity, self.board_size,
+                                                                            self.board_size, DEFAULT_FADER_COLOR))
+        self.fader = self.create_image(0, 0, image=translucent_fg, anchor="nw")
 
     """
-    Drag and drop related methods
+    Mouse actions
     """
+    def move_piece(self, piece: Piece, new_square: Square):
+        """
+        Moves a piece. Before moving a piece, this method checks the GUI conditions for a piece to move, and then runs
+        the move method in the ChessGame instance with the correct arguments. Based on the move results, if the move is
+        legal, then move_gui_piece is then run, and if the move result is to ask the promoting piece, a promotion prompt
+        is created.
+        """
+
+        cancel_move = True
+        self.unmark_moves()
+
+        if self.dragging and new_square:
+            move_result = self.game.move(self.dragging.square.i, new_square.i)
+
+            if ruleset.MoveResults.is_move_made(move_result):
+                self.dragging.move_to_square(new_square)
+
+                cancel_move = False
+                self.reset_board(self.game.board)  # Soon to be replaced when the GUI works
+                self.dragging = None
+
+            elif move_result == ruleset.MoveResults.PROMPT_PROMOTION:
+                self.promotion_prompt = PromotionPrompt(self, new_square, piece)
+
+        if cancel_move:
+            self.cancel_move()  # Put back piece to original square and self.dragging = None
+
     def get_square_on_pos(self, x, y):
         """
         Returns the square that is on a specified position relative to the board
@@ -171,13 +297,6 @@ class Board(tk.Canvas):
 
         sqx, sqy = int(x // self.square_size), int(y // self.square_size)
         return self.squares[sqx + sqy * 8]
-
-    def move_piece(self, new_square):
-        if self.dragging:
-            self.dragging.move_to_square(new_square)
-            self.dragging = None
-
-            self.reset_board(self.game.board)  # Soon to be replaced when gui.Board.output_move works
 
     def cancel_move(self):
         if self.dragging:
@@ -192,9 +311,9 @@ class Board(tk.Canvas):
                 x, y = self.squares[move_to].get_center()
 
                 if self.squares[move_to].piece:
-                    image = self.sg.open("sprites/capture marker.png", size=(size, size))
+                    image = self.sg.open("data/sprites/capture marker.png", size=(size, size))
                 else:
-                    image = self.sg.open("sprites/move marker.png", size=(size, size))
+                    image = self.sg.open("data/sprites/move marker.png", size=(size, size))
 
                 marker = self.create_image(x, y, image=image, anchor="center")
 
@@ -209,41 +328,33 @@ class Board(tk.Canvas):
     """
     Mouse event methods
     """
-    def mouse_click(self, event):
-        self.dragging = self.get_square_on_pos(event.x, event.y).piece
+    def mouse_down(self, event):
+        if self.enable_drag_and_drop:
+            self.dragging = self.get_square_on_pos(event.x, event.y).piece
 
-        if self.dragging:
-            self.dragging.move_center(event.x, event.y)
-            self.mark_moves(self.dragging.square.i)
-            self.lift(self.dragging.canvas_item)  # Order dragging piece to the topmost layer
+            if self.dragging:
+                self.dragging.move_center(event.x, event.y)
+                self.mark_moves(self.dragging.square.i)
+                self.lift(self.dragging.canvas_item)  # Order dragging piece to the topmost layer
 
     def mouse_motion(self, event):
         if self.dragging:
             self.dragging.move_center(event.x, event.y)
 
     def mouse_release(self, event):
-        cancel_move = True
-        self.unmark_moves()
+        """
+        Releasing the mouse while dragging a piece makes a move on the chess board
+        """
+        square_on_cursor = self.get_square_on_pos(event.x, event.y)
 
-        if self.dragging:
-            new_square = self.get_square_on_pos(event.x, event.y)
-
-            if new_square:
-                move_result = self.game.move(self.dragging.square.i, new_square.i)
-
-                if ruleset.MoveResults.is_move_made(move_result):
-                    self.move_piece(new_square)
-                    cancel_move = False
-
-        if cancel_move:
-            self.cancel_move()
-
+        if self.promotion_prompt:
+            self.promotion_prompt.mouse_click(square_on_cursor)
+        else:
+            self.move_piece(self.dragging, square_on_cursor)
 
     def right_mouse_click(self, event):
         self.unmark_moves()
-
-        if self.dragging:
-            self.cancel_move()
+        self.cancel_move()
 
 class MainWindow(tk.Tk):
     def __init__(self):
@@ -251,7 +362,7 @@ class MainWindow(tk.Tk):
         self.title("Profchessor")
         self.geometry("800x800")
         self.configure(bg=BG_COLOR)
-        self.iconbitmap("sprites/icon.ico")
+        self.iconbitmap("data/sprites/icon.ico")
 
         if not shared.DEBUG_LEVEL:
             self.wm_attributes("-fullscreen", True)  # Fullscreen
@@ -267,6 +378,7 @@ class MainWindow(tk.Tk):
         # fen = "r2qkbnr/pp1npppp/2p1b3/3p4/7N/1P2P3/PBPP1PPP/RN1QKB1R w KQkq - 3 6"
         # fen = "r1b3k1/pp3pp1/3B4/3p1P1p/8/1P1P1N1P/P2P1qP1/4R2K w - - 2 26"
         # fen = "7k/pr4p1/2n1N2p/b2N1Q2/2BP4/P3P2P/5RP1/2KR4 w - - 1 29"
+        # fen = "5K2/P7/8/8/8/8/7p/5k2 w - - 0 1"
 
         self.game = ruleset.ChessGame(fen)
 

@@ -7,13 +7,6 @@ import os
 import json
 
 
-def create_translucent_rectangle(width, height, opacity: float, color=(0, 0, 0)):
-    image = Image.new("RGBA", (width, height), (*color, int(opacity * 255)))
-    photoimage = ImageTk.PhotoImage(image)
-
-    return photoimage
-
-
 class SpriteGroup:
     """
     SpriteGroup is used to create a PhotoImage object and store it on a dictionary
@@ -24,7 +17,7 @@ class SpriteGroup:
     def __init__(self):
         self.sprite_dict = {}
 
-    def open(self, path, size: tuple=None):
+    def open(self, path: str, size: tuple=None):
         """
         Returns the PhotoImage instance of a specified image file.
         If the PhotoImage is already in the sprite group, then it returns the instance that already has been made
@@ -39,6 +32,17 @@ class SpriteGroup:
             self.sprite_dict[path] = ImageTk.PhotoImage(image)
 
         return self.sprite_dict[path]
+
+    def add_photo(self, name: str, photo: ImageTk.PhotoImage=None):
+        """
+        Adds a PhotoImage object to the sprite dict of the sprite group
+        The newly added photo is also returned
+        """
+
+        if photo:
+            self.sprite_dict[name] = photo
+
+        return self.sprite_dict[name]
 
 
 class PieceSpriteGroup(SpriteGroup):
