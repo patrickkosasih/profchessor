@@ -54,6 +54,7 @@ Terms that are used throughout the module:
 * And many more chess terms...
 """
 import copy
+import random
 import time
 
 import shared
@@ -133,6 +134,13 @@ The numbers inside the lists refer to the following:
 * Index 3: The rook's original square
 * Index 4: The queenside knight's original square (exclusive to queenside castling ("Q" and "q"))
 """
+
+ZOBRIST_TABLE = [[random.randrange(2 ** 64) for _ in range(12)] for _ in range(65)]
+"""
+ZOBRIST_TABLE is a 2 dimensional list that is used to hash a chess position into a 64 bit number. The size of the list
+is 65 x 12 (64 squares x 12 piece types + 12 extra slots for position states).
+"""
+
 
 class MoveResults:
     """
@@ -223,10 +231,6 @@ def coordinate_to_i(coor: str):
     return ord(coor[0]) - ord("a") + (8 - int(coor[1]))
 
 
-def hash_board(board: list):
-    pass
-
-
 """
 ==============
 Misc functions
@@ -274,7 +278,7 @@ class Position:
         """
         Standard FEN chess position properties
         """
-        self.board = STARTING_BOARD.copy()
+        self.board = []
         self.turn = True  # True: white's turn, False: black's turn
         self.move_num = 1
         self.halfmove_clock = 0
@@ -284,8 +288,11 @@ class Position:
         """
         More chess position properties
         """
-
+        self.white_pieces = []
+        self.black_pieces = []
         self.game_result = None
+
+        self.zobrist_hash = 0
         self.repetitions = {}  # Dictionary of how many times a position (in Zobrist hash) has been reached
 
         """
@@ -313,8 +320,12 @@ class Position:
                                   # -1 if king is not on check and -2 if it's a double check
         self.checking_path = []  # The squares a piece can move to in order to block the check
 
+        """
+        Initialize Position.ATTRIBUTES (static)
+        
+        Only run once when the first Position object is created to save the attributes of the Position class
+        """
         if not Position.ATTRIBUTES:
-            # Only run once when the first Position object is created to save the attributes of the Position class
             Position.ATTRIBUTES = list(vars(self).keys())
 
         if fen:
@@ -322,6 +333,11 @@ class Position:
         elif load_from:
             self.load_position(load_from)
         else:
+            # If neither fen and load_from is passed in then load starting position
+            self.board = STARTING_BOARD.copy()
+
+            self.refresh_piece_squares()
+            self.update_hash()
             self.update_moves()
 
     def generate_piece_moves(self, square: int, controlling_only=False):
@@ -445,7 +461,7 @@ class Position:
                     different_color = tracer_piece.isupper() != piece.isupper()
                     stop_tracing = True
 
-                    if (square not in self.pinned_pieces or tracer in self.pins) and \
+                    if (square not in self.pinned_pieces or tracer in self.pins[self.pinned_pieces.index(square)]) and \
                         (controlling_only or (different_color and not pawn_push and (
                             (piece_type != "K" and (not must_evade_check or tracer == self.checking_piece)) or
                             (piece_type == "K" and tracer not in self.attacked_squares)
@@ -608,29 +624,6 @@ class Position:
 
         return ret
 
-    def can_castle(self, side):
-        """
-        Returns True if a king can castle to the given side and color
-
-        Castling conditions:
-        1. The king is not in check
-        2. The king and the rook of the castling side both haven't moved yet
-        3. The squares between the king and the rook are empty
-        4. The square the king "goes through" while castling and the square it ends up on after castling is not attacked
-           by the enemy
-        """
-        assert side in CASTLING_SQUARES, f"invalid side \"{side}\""
-
-        squares_after_castling = CASTLING_SQUARES[side][1:3]
-        squares_in_between = squares_after_castling.copy()
-        if side in ("Q", "q"):
-            squares_in_between.append(CASTLING_SQUARES[side][4])
-
-        return not self.check and \
-               self.castling_rights[side] and \
-               all(not self.board[square] for square in squares_in_between) and \
-               all(square not in self.attacked_squares for square in squares_after_castling)
-
     # @shared.func_timer
     def update_moves(self):
         # A position is not on check and doesn't have pins until proven otherwise
@@ -641,15 +634,13 @@ class Position:
         self.pins = []
         self.pinned_pieces = []
 
-        # Get the indexes of the pieces of each color
-        white = [i for i, x in enumerate(self.board) if x.isupper()]
-        black = [i for i, x in enumerate(self.board) if x.islower()]
-
         self.enemy_moves = {square: self.generate_piece_moves(square, controlling_only=True)
-                            for square in (black if self.turn else white)}
+                            for square in (self.black_pieces if self.turn else self.white_pieces)}
+
         self.attacked_squares = {x for piece_moves in self.enemy_moves.values() for x in piece_moves}
 
-        self.legal_moves = {square: self.generate_piece_moves(square) for square in (white if self.turn else black)}
+        self.legal_moves = {square: self.generate_piece_moves(square)
+                            for square in (self.white_pieces if self.turn else self.black_pieces)}
 
         if shared.DEBUG_LEVEL >= 2:
             print(f"Move {self.move_num} for {'white' if self.turn else 'black'}")
@@ -689,21 +680,44 @@ class Position:
         self.board[old] = ""
 
         """
+        Update piece squares list
+        (En passant pawns and castled rooks are updated later)
+        """
+        ally_pieces = self.white_pieces if self.turn else self.black_pieces
+        enemy_pieces = self.black_pieces if self.turn else self.white_pieces
+
+        ally_pieces.remove(old)
+        ally_pieces.append(new)
+
+        if captured_piece:
+            enemy_pieces.remove(new)
+
+        """
         En passant
         """
         new_en_passantable = False
         if piece in ("P", "p"):
             if abs(new - old) == 16:
-                # If a pawn moved two squares on its first move, then mark the square behind that pawn as en passantable
+                """
+                Detecting new en passantable pawns
+                
+                If a pawn moved two squares on its first move, then mark the square behind that pawn as en passantable
+                """
                 self.en_passantable = old + (8 if piece == "p" else -8)
                 new_en_passantable = True
 
             elif new == self.en_passantable:
-                # If a pawn captures an en passantable square, capture the pawn behind
+                """
+                En passant move
+                
+                If a pawn captures an en passantable square, capture the pawn behind
+                """
                 en_passanted_square = new + (-8 if piece == "p" else 8)
 
                 captured_piece = self.board[en_passanted_square]
                 self.board[en_passanted_square] = ""
+
+                enemy_pieces.remove(en_passanted_square)  # Update pieces list for en passant moves
 
                 move_result = MoveResults.EN_PASSANT
 
@@ -715,13 +729,21 @@ class Position:
         """
         for side, squares in CASTLING_SQUARES.items():
             if old == squares[0] or old == squares[3] or new == squares[3]:
-                # If the king or rook moves, or a piece captures the enemy rook,
-                # then the king loses its castling rights to the given side(s)
+                """
+                Removing castling rights
+                
+                If the king or rook moves, or a piece captures the enemy rook, then the king loses its castling rights
+                to the given side(s)
+                """
                 self.castling_rights[side] = False
 
         if piece in ("K", "k") and abs(new - old) == 2:
-            # If the king moves 2 squares to the side then it's a castling move
-            # The rook is then moved to the correct square according to the side of castling
+            """
+            Castling move
+            
+            If the king moves 2 squares to the side then it's a castling move
+            The rook is then moved to the correct square according to the side of castling
+            """
 
             for squares in CASTLING_SQUARES.values():
                 if new == squares[2]:
@@ -729,10 +751,18 @@ class Position:
                     self.board[rook_new] = self.board[rook_old]
                     self.board[rook_old] = ""
 
+                    ally_pieces.remove(rook_old)  # Update pieces list for castling moves
+                    ally_pieces.append(rook_new)
+
                     move_result = MoveResults.CASTLE
 
         """
-        Update turn, halfmove clock, and move number
+        Update:
+        1. Halfmove clock
+        2. Turn
+        3. Move number
+        4. Hash
+        5. Repetitions
         """
         if piece in ("P", "p") or captured_piece:
             self.halfmove_clock = 0
@@ -743,6 +773,13 @@ class Position:
 
         if self.turn:
             self.move_num += 1
+
+        self.update_hash()
+
+        if self.zobrist_hash in self.repetitions:
+            self.repetitions[self.zobrist_hash] += 1
+        else:
+            self.repetitions[self.zobrist_hash] = 1
 
         """
         Update moves
@@ -775,10 +812,86 @@ class Position:
         elif self.halfmove_clock >= 100:
             self.game_result = GameResult(GameResult.DRAW, GameResult.FIFTY_MOVE)
 
+        elif self.repetitions[self.zobrist_hash] >= 3:
+            self.game_result = GameResult(GameResult.DRAW, GameResult.REPETITION)
+
+        elif captured_piece and self.is_insufficient_material(True) and self.is_insufficient_material(False):
+            self.game_result = GameResult(GameResult.DRAW, GameResult.INSUFFICIENT_MATERIAL)
+
         else:
             move_result -= MoveResults.GAME_OVER
 
         return move_result
+
+    def can_castle(self, side):
+        """
+        Returns True if a king can castle to the given side and color
+
+        Castling conditions:
+        1. The king is not in check
+        2. The king and the rook of the castling side both haven't moved yet
+        3. The squares between the king and the rook are empty
+        4. The square the king "goes through" while castling and the square it ends up on after castling is not attacked
+           by the enemy
+        """
+        assert side in CASTLING_SQUARES, f"invalid side \"{side}\""
+
+        squares_after_castling = CASTLING_SQUARES[side][1:3]
+        squares_in_between = squares_after_castling.copy()
+        if side in ("Q", "q"):
+            squares_in_between.append(CASTLING_SQUARES[side][4])
+
+        return not self.check and \
+               self.castling_rights[side] and \
+               all(not self.board[square] for square in squares_in_between) and \
+               all(square not in self.attacked_squares for square in squares_after_castling)
+
+    def is_insufficient_material(self, side):
+        """
+        Returns True if the given side doesn't have enough material/pieces to perform a checkmate.
+        A side is considered insufficient in mating material when the only pieces left is one of the following:
+        1. King
+        2. King and knight
+        3. King and bishop
+
+        :param side: True: white, False: black
+        """
+        pieces = self.white_pieces if side else self.black_pieces
+        return len(pieces) <= 1 or \
+               len(pieces) == 2 and any(self.board[x].upper() in ("N", "B") for x in pieces)
+
+    def update_hash(self):
+        """
+        Generates a hash / integer value of the current position using the Zobrist hashing algorithm
+        """
+        self.zobrist_hash = 0
+
+        """
+        1. Pieces
+        """
+        for i, piece in enumerate(self.board):
+            if piece:
+                self.zobrist_hash ^= ZOBRIST_TABLE[i][PIECE_TYPES.index(piece)]  # XOR
+
+        """
+        2. Position state
+        
+        The XOR values for the position states are stored in the index 64 of the zobrist table. Each of the position
+        states (turn, en passantable, castling rights) can be true or false. If the state is set to True, the hash value
+        will be XORed with the correct index of the zobrist table. Only 6 out of the 12 numbers in the last row of the
+        zobrist table is used.
+        
+        Index 0: Turn
+        Index 1: Is there an en passantable pawn
+        Index 2-5: Castling rights
+        """
+        for i, state in enumerate((self.turn, self.en_passantable != -1, *self.castling_rights.values())):
+            if state:
+                self.zobrist_hash ^= ZOBRIST_TABLE[64][i]  # XOR
+
+    def refresh_piece_squares(self):
+        self.white_pieces = [i for i, x in enumerate(self.board) if x.isupper()]
+        self.black_pieces = [i for i, x in enumerate(self.board) if x.islower()]
 
     def load_fen(self, fen: str):
         board_raw, turn, castling_rights, en_passantable, halfmove_clock, move_num = fen.split()
@@ -828,6 +941,9 @@ class Position:
         # 6. Fullmove number
         self.move_num = int(move_num)
 
+        # Finish initialization
+        self.update_hash()
+        self.refresh_piece_squares()
         self.update_moves()
 
     def load_position(self, load_from):
@@ -894,13 +1010,19 @@ class ChessGame(Position):
             match self.game_result.details:
                 case GameResult.CHECKMATE:
                     winner = "Black" if self.turn else "White"
-                    print(f"Checkmate: {winner} wins!")
+                    print(f"Checkmate! {winner} wins! ")
 
                 case GameResult.STALEMATE:
-                    print("Stalemate: It's a draw!")
+                    print("Draw: Stalemate")
 
                 case GameResult.FIFTY_MOVE:
-                    print("Fifty move rule: It's a draw!")
+                    print("Draw: Fifty move rule")
+
+                case GameResult.REPETITION:
+                    print("Draw: Threefold repetition")
+
+                case GameResult.INSUFFICIENT_MATERIAL:
+                    print("Draw: Insufficient material")
 
         elif MoveResults.is_check(move_result):
             print("Check!")
@@ -925,7 +1047,6 @@ class ChessGame(Position):
 
         old_coor = i_to_coordinate(old)
         new_coor = i_to_coordinate(new)
-
 
         """
         1. Piece type
@@ -1000,7 +1121,7 @@ class ChessGame(Position):
 
         if auto_detect_check:
             moved = self.copy()
-            moved.move(old, new)
+            moved.move(old, new, promote_to)
 
             if moved.game_result and moved.game_result.details == GameResult.CHECKMATE:
                 ret += "#"
