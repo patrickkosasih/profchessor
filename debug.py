@@ -10,6 +10,7 @@ Currently, different debug levels do the following:
 0: Debug off, fullscreen mode
 1: Windowed, visible index numbers on squares
 2: Print legal moves and enemy controlled squares on the console
+1000: Call move_gen_test.main() and run a move generation test without showing the usual GUI window
 """
 
 

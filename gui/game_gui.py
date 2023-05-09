@@ -1,7 +1,7 @@
 import tkinter as tk
 
-import ruleset
-import shared
+import rules
+import debug
 from gui import sprites, shared_gui
 
 BG_COLOR = "#2b3030"
@@ -14,7 +14,7 @@ class Piece:
     psg = sprites.PieceSpriteGroup("data/sprites/pieces/piece_map.json")
 
     def __init__(self, board: tk.Canvas, piece_type, square, bind_to_square=True):
-        if piece_type not in ruleset.PIECE_TYPES:
+        if piece_type not in rules.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
         self.piece_type = piece_type
@@ -68,7 +68,7 @@ class Square:
     def __init__(self, board: tk.Canvas, i, size):
         self.board = board
         self.i = i
-        self.coordinate = ruleset.i_to_coordinate(i)
+        self.coordinate = rules.i_to_coordinate(i)
         self.size = size
         self.piece = None
 
@@ -79,7 +79,7 @@ class Square:
                                                   fill=self.default_color, outline="")
 
         # Debug text that shows the index of the square
-        if shared.DEBUG_LEVEL:
+        if debug.DEBUG_LEVEL:
             board.create_text(x * size + 10, y * size + 10, text=i)
 
     def __int__(self):
@@ -264,7 +264,7 @@ class Board(tk.Canvas):
         """
         Moves a piece. Before moving a piece, this method checks the GUI conditions for a piece to move, and then runs
         the move method in the ChessGame instance with the correct arguments. Based on the move results, if the move is
-        legal, then move_gui_piece is then run, and if the move result is to ask the promoting piece, a promotion prompt
+        legal, then the gui piece is moved, and if the move result is to ask the promoting piece, a promotion prompt
         is created.
         """
 
@@ -274,14 +274,14 @@ class Board(tk.Canvas):
         if self.dragging and new_square:
             move_result = self.game.move(self.dragging.square.i, new_square.i)
 
-            if ruleset.MoveResults.is_move_made(move_result):
+            if rules.MoveResults.is_move_made(move_result):
                 self.dragging.move_to_square(new_square)
 
                 cancel_move = False
                 self.reset_board(self.game.board)  # Soon to be replaced when the GUI works
                 self.dragging = None
 
-            elif move_result == ruleset.MoveResults.PROMPT_PROMOTION:
+            elif move_result == rules.MoveResults.PROMPT_PROMOTION:
                 self.promotion_prompt = PromotionPrompt(self, new_square, piece)
 
         if cancel_move:
@@ -364,7 +364,7 @@ class MainWindow(tk.Tk):
         self.configure(bg=BG_COLOR)
         self.iconbitmap("data/sprites/icon.ico")
 
-        if not shared.DEBUG_LEVEL:
+        if not debug.DEBUG_LEVEL:
             self.wm_attributes("-fullscreen", True)  # Fullscreen
             # self.state("zoomed")  # Maximized
 
@@ -380,7 +380,7 @@ class MainWindow(tk.Tk):
         # fen = "7k/pr4p1/2n1N2p/b2N1Q2/2BP4/P3P2P/5RP1/2KR4 w - - 1 29"
         # fen = "5K2/P7/8/8/8/8/7p/5k2 w - - 0 1"
 
-        self.game = ruleset.ChessGame(fen)
+        self.game = rules.ChessGame(fen)
 
         self.board = Board(self, self.game, size=self.winfo_height() * 0.8)
         self.game.board_gui = self.board

@@ -1,5 +1,5 @@
 """
-ruleset.py
+rules.py
 
 The Python module that handles chess positions and makes sure that all the piece moves follow the rules of chess.
 
@@ -57,7 +57,7 @@ import copy
 import random
 import time
 
-import shared
+import debug
 
 """
 =======================
@@ -471,8 +471,8 @@ class Position:
                             """
                             The tracer has reached the enemy king
                             
-                            1. No pin suspects                  : Check
-                            2. Pin suspect (phantom tracer)     : Absolute pin
+                            1. Not a phantom tracer     : Check
+                            2. Phantom tracer           : Absolute pin
                             """
 
                             if pin_suspect == -1:
@@ -551,18 +551,16 @@ class Position:
                                 back_pawn_square = tracer
                                 back_pawn = self.board[tracer]
 
-                                stop_tracing = False
                                 searching_ep_pin = True
 
                                 if back_pawn in ("P", "p") and front_pawn.isupper() != back_pawn.isupper():
                                     if abs(front_pawn_square - self.en_passantable) == 8:
                                         pin_suspect = back_pawn_square
+                                        stop_tracing = False
 
                                     elif abs(back_pawn_square - self.en_passantable) == 8:
                                         pin_suspect = front_pawn_square
-
-                                    else:
-                                        stop_tracing = True
+                                        stop_tracing = False
 
                     if stop_tracing:
                         break
@@ -624,7 +622,7 @@ class Position:
 
         return ret
 
-    # @shared.func_timer
+    # @debug.func_timer
     def update_moves(self):
         # A position is not on check and doesn't have pins until proven otherwise
         self.check = False
@@ -642,13 +640,7 @@ class Position:
         self.legal_moves = {square: self.generate_piece_moves(square)
                             for square in (self.white_pieces if self.turn else self.black_pieces)}
 
-        if shared.DEBUG_LEVEL >= 2:
-            print(f"Move {self.move_num} for {'white' if self.turn else 'black'}")
-            print("  Legal moves:", self.legal_moves)
-            print("  Attacked:", self.enemy_moves)
-            print()
-
-    # @shared.func_timer
+    # @debug.func_timer
     def move(self, old: int, new: int, promote_to=None):
         """
         Move a piece and update the current position
@@ -666,10 +658,15 @@ class Position:
 
         pawn_promotion = piece in ("P", "p") and new // 8 in (0, 7)
 
-        if pawn_promotion and promote_to is None:
+        if pawn_promotion:
             # If the pawn reached the other side, then it's a pawn promotion. If the move is a pawn promotion and the
             # piece to promote to is still not determined, then the move is not made
-            return MoveResults.PROMPT_PROMOTION
+            if not promote_to:
+                return MoveResults.PROMPT_PROMOTION
+
+            assert promote_to in PIECE_TYPES
+
+            promote_to = promote_to.upper() if self.turn else promote_to.lower()
 
         move_result = MoveResults.MOVE  # Return value
 
@@ -953,84 +950,6 @@ class Position:
         for attr in Position.ATTRIBUTES:
             setattr(self, attr, copy.deepcopy(getattr(load_from, attr)))
 
-    def copy(self):
-        return Position(load_from=self)
-
-    # @shared.func_timer
-    def search(self, depth: int):
-        """
-        Returns how many positions (leaf nodes) there are in the move generation tree of a given depth
-        """
-
-        if depth <= 1:
-            return sum(len(x) for x in self.legal_moves.values())
-
-        count = 0
-        for old in self.legal_moves:
-            for new in self.legal_moves[old]:
-                new_copy = self.copy()
-                new_copy.move(old, new)
-                count += new_copy.search(depth - 1)
-
-        return count
-
-
-
-class ChessGame(Position):
-    """
-    ChessGame is the subclass of Position with additional properties that would only be in an ongoing chess match
-    such as undoing, move history, resigning, etc
-    """
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        # ChessGame subclass attributes
-        self.position_history = []
-        self.move_history = []
-
-        self.position_history.append(self.copy())
-
-        # Testing stuff
-        # for i in range(1, 9):
-        #     time_before = time.perf_counter()
-        #     print(f"depth: {i}, result: {self.search(i)}, time: {time.perf_counter() - time_before} seconds")
-
-    def move(self, old: int, new: int, promote_to=None):
-        if old in self.legal_moves and new in self.legal_moves[old]:
-            print(f"{self.move_num}{'.' if self.turn else '...'} "
-                  f"{self.algebraic(old, new, promote_to, auto_detect_check=True)}")
-
-        move_result = super().move(old, new, promote_to)
-
-        """"
-        Basic check and checkmate/stalemate indicator
-        Will be changed to something better when the GUI is done
-        """
-        if MoveResults.is_game_over(move_result):
-            match self.game_result.details:
-                case GameResult.CHECKMATE:
-                    winner = "Black" if self.turn else "White"
-                    print(f"Checkmate! {winner} wins! ")
-
-                case GameResult.STALEMATE:
-                    print("Draw: Stalemate")
-
-                case GameResult.FIFTY_MOVE:
-                    print("Draw: Fifty move rule")
-
-                case GameResult.REPETITION:
-                    print("Draw: Threefold repetition")
-
-                case GameResult.INSUFFICIENT_MATERIAL:
-                    print("Draw: Insufficient material")
-
-        elif MoveResults.is_check(move_result):
-            print("Check!")
-
-        self.position_history.append(self.copy())
-
-        return move_result
-
     def algebraic(self, old: int, new: int, promote_to="", auto_detect_check=False):
         """
         Returns the algebraic notation of a move (for example e4, Ke2, Qf7, etc.)
@@ -1050,7 +969,7 @@ class ChessGame(Position):
 
         """
         1. Piece type
-        
+
         The moving pieces (other than pawns) are identified by an uppercase letter. Pawns are identified by the file
         it's on before moving (only on pawn captures).
         """
@@ -1061,7 +980,7 @@ class ChessGame(Position):
 
         """
         2. Disambiguating moves
-        
+
         If more than one piece of the same type can move to the destination square, then the move notation identifies
         which piece is moved by using the moving piece's file, rank, or coordinate (in order from highest to lowest
         priority).
@@ -1094,7 +1013,7 @@ class ChessGame(Position):
 
         """
         3. Capture ("x")
-        
+
         If the move is a capture, then an "x" is added before the coordinate of the new square
         """
         if capture:
@@ -1107,7 +1026,7 @@ class ChessGame(Position):
 
         """
         5. Pawn promotion ("=_")
-        
+
         Pawn promotion moves are notated by adding "=(the piece it promotes to)".
         """
         if promote_to:
@@ -1120,8 +1039,7 @@ class ChessGame(Position):
             ret += " e.p."
 
         if auto_detect_check:
-            moved = self.copy()
-            moved.move(old, new, promote_to)
+            moved, _ = self.copy_and_move(old, new, promote_to)
 
             if moved.game_result and moved.game_result.details == GameResult.CHECKMATE:
                 ret += "#"
@@ -1129,3 +1047,72 @@ class ChessGame(Position):
                 ret += "+"
 
         return ret
+
+    def copy(self):
+        return Position(load_from=self)
+
+    def copy_and_move(self, old, new, promote_to=None):
+        copied = self.copy()
+        move_result = copied.move(old, new, promote_to)
+        return copied, move_result
+
+
+class ChessGame(Position):
+    """
+    ChessGame is the subclass of Position with additional properties that would only be in an ongoing chess match
+    such as undoing, move history, resigning, etc
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # ChessGame subclass attributes
+        self.position_history = []
+        self.move_history = []
+
+        self.position_history.append(self.copy())
+
+    def move(self, old: int, new: int, promote_to=None):
+        move_result = super().move(old, new, promote_to)
+
+        """"
+        Basic check and checkmate/stalemate indicator
+        Will be changed to something better when the GUI is done
+        """
+        if MoveResults.is_game_over(move_result):
+            match self.game_result.details:
+                case GameResult.CHECKMATE:
+                    winner = "Black" if self.turn else "White"
+                    print(f"Checkmate! {winner} wins! ")
+
+                case GameResult.STALEMATE:
+                    print("Draw: Stalemate!")
+
+                case GameResult.FIFTY_MOVE:
+                    print("Draw: Fifty move rule reached!")
+
+                case GameResult.REPETITION:
+                    print("Draw: Threefold repetition!")
+
+                case GameResult.INSUFFICIENT_MATERIAL:
+                    print("Draw: Insufficient checkmating material!")
+
+        elif MoveResults.is_check(move_result):
+            print("Check!")
+
+        if MoveResults.is_move_made(move_result):
+            prev = self.position_history[-1]
+            algebraic_trail = '#' if (self.game_result and self.game_result.details == GameResult.CHECKMATE) else \
+                ('+' if self.check else "")
+
+            print(f"{prev.move_num}{'.' if prev.turn else '...'} "
+                  f"{prev.algebraic(old, new, promote_to, auto_detect_check=False)}{algebraic_trail}")
+
+            if 2 <= debug.DEBUG_LEVEL < 1000:
+                print(f"\n"
+                      f"Move {self.move_num} for {'white' if self.turn else 'black'}\n"
+                      f"  Legal moves: {self.legal_moves}\n"
+                      f"  Enemy moves: {self.enemy_moves}\n")
+
+        self.position_history.append(self.copy())
+
+        return move_result

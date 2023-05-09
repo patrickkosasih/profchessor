@@ -1,2 +1,4 @@
 .idea
 __pycache__
+ruleset.c
+test_results
