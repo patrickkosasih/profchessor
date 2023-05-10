@@ -1,4 +1,6 @@
 import tkinter as tk
+from PIL import ImageFont
+import tkinter.font as tk_font
 
 import rules
 import debug
@@ -202,10 +204,15 @@ class Board(tk.Canvas):
         """
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
         self.flipped = False
-        self.sg = sprites.SpriteGroup()
 
+        self.sg = sprites.SpriteGroup()
         self.fader = None
         self.promotion_prompt = None
+
+        self.game_over_text = self.create_text(size / 2, size * 0.425, text="", font=("Calibri", int(size * 0.125)),
+                                               fill="white", anchor=tk.CENTER)
+        self.game_over_subtext = self.create_text(size / 2, size * 0.575, text="", font=("Calibri", int(size * 0.05)),
+                                                  fill="white", anchor=tk.CENTER)
 
         """
         Drag and drop attributes
@@ -244,9 +251,30 @@ class Board(tk.Canvas):
             if piece_type:
                 Piece(self, piece_type, gui_square)
 
-    def output_move(self, piece, new_square):
-        # Coming soon: move a piece without the player's control when playing against the computer or another player
-        pass
+    def game_over_screen(self):
+        if not self.game.game_result:
+            return
+
+        self.set_fader(0.5)
+        self.enable_drag_and_drop = False
+
+        match self.game.game_result.winner:
+            case rules.GameResult.WHITE_WINS:
+                winner = "White Wins!"
+            case rules.GameResult.BLACK_WINS:
+                winner = "Black Wins!"
+            case rules.GameResult.DRAW:
+                winner = "Draw!"
+            case _:
+                winner = "wtf?"
+
+        details = rules.GameResult.DETAILS_STR[self.game.game_result.details]
+        details = details[0].upper() + details[1:]  # Capitalize first letter
+
+        self.itemconfig(self.game_over_text, text=winner)
+        self.itemconfig(self.game_over_subtext, text=details)
+        self.lift(self.game_over_text)
+        self.lift(self.game_over_subtext)
 
     """
     Misc GUI methods
@@ -280,6 +308,9 @@ class Board(tk.Canvas):
                 cancel_move = False
                 self.reset_board(self.game.board)  # Soon to be replaced when the GUI works
                 self.dragging = None
+
+                if rules.MoveResults.is_game_over(move_result):
+                    self.game_over_screen()
 
             elif move_result == rules.MoveResults.PROMPT_PROMOTION:
                 self.promotion_prompt = PromotionPrompt(self, new_square, piece)

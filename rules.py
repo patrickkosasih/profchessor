@@ -199,6 +199,19 @@ class GameResult:
     INSUFFICIENT_MATERIAL = 7
     TIMEOUT_AND_INSUFFICIENT = 8
 
+    # Game result details in string
+    DETAILS_STR = [
+        "checkmate",
+        "resignation",
+        "timeout",
+        "stalemate",
+        "draw agreement",
+        "threefold repetition",
+        "fifty move rule",
+        "insufficient material",
+        "timeout vs insufficient material"
+    ]
+
     def __init__(self, winner, details):
         self.winner = winner
         self.details = details
@@ -735,15 +748,14 @@ class Position:
                 self.castling_rights[side] = False
 
         if piece in ("K", "k") and abs(new - old) == 2:
-            """
-            Castling move
-            
-            If the king moves 2 squares to the side then it's a castling move
-            The rook is then moved to the correct square according to the side of castling
-            """
-
             for squares in CASTLING_SQUARES.values():
                 if new == squares[2]:
+                    """
+                    Castling move
+
+                    If the king moves 2 squares to the side then it's a castling move
+                    The rook is then moved to the correct square according to the side of castling
+                    """
                     rook_old, rook_new = squares[3], squares[1]
                     self.board[rook_new] = self.board[rook_old]
                     self.board[rook_old] = ""
