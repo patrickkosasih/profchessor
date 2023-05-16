@@ -1,7 +1,7 @@
 import tkinter as tk
-from PIL import ImageFont
-import tkinter.font as tk_font
+import winsound
 
+import gui.audio
 import rules
 import debug
 from gui import sprites, shared_gui
@@ -158,6 +158,8 @@ class PromotionPrompt:
             """
             move_result = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i, promote_to=new_piece_type)
 
+            gui.audio.play_sound("promotion.wav")
+
             """
             Configure the pawn GUI:
             Move the GUI pawn, turn it into the new piece type, and unhide it
@@ -236,7 +238,7 @@ class Board(tk.Canvas):
         # self.fg_thing = self.create_image(0, 0, image=pixel_thing, anchor="nw")
 
     """
-    General GUI methods for a chess board
+    General GUI methods
     """
     def reset_board(self, board_data: list[64]):
         if self.dragging:
@@ -276,14 +278,34 @@ class Board(tk.Canvas):
         self.lift(self.game_over_text)
         self.lift(self.game_over_subtext)
 
-    """
-    Misc GUI methods
-    """
     def set_fader(self, opacity):
         translucent_fg = self.sg.add_photo("translucent_fg",
                                            shared_gui.translucent_rectangle(opacity, self.board_size,
                                                                             self.board_size, DEFAULT_FADER_COLOR))
         self.fader = self.create_image(0, 0, image=translucent_fg, anchor="nw")
+
+    def piece_sfx(self, move_result):
+        match move_result % 8:
+            case rules.MoveResults.MOVE:
+                gui.audio.play_sound("move.wav")
+
+            case rules.MoveResults.CAPTURE | rules.MoveResults.EN_PASSANT:
+                gui.audio.play_sound("capture.wav")
+
+            case rules.MoveResults.CASTLE:
+                gui.audio.play_sound("castle.wav")
+
+            case rules.MoveResults.PROMOTION:
+                gui.audio.play_sound("castle.wav")
+
+        if rules.MoveResults.is_move_made(move_result):
+            if rules.MoveResults.is_game_over(move_result) and \
+                    self.game.game_result.details == rules.GameResult.CHECKMATE:
+                gui.audio.play_sound("checkmate.wav")
+
+            elif self.game.check:
+                gui.audio.play_sound("check.wav")
+
 
     """
     Mouse actions
@@ -303,6 +325,10 @@ class Board(tk.Canvas):
             move_result = self.game.move(self.dragging.square.i, new_square.i)
 
             if rules.MoveResults.is_move_made(move_result):
+                """
+                Make the move
+                """
+
                 self.dragging.move_to_square(new_square)
 
                 cancel_move = False
@@ -313,10 +339,18 @@ class Board(tk.Canvas):
                     self.game_over_screen()
 
             elif move_result == rules.MoveResults.PROMPT_PROMOTION:
+                """
+                Create a promotion prompt
+                """
                 self.promotion_prompt = PromotionPrompt(self, new_square, piece)
 
-        if cancel_move:
-            self.cancel_move()  # Put back piece to original square and self.dragging = None
+            if cancel_move:
+                self.cancel_move()  # Put back piece to original square and self.dragging = None
+
+            """
+            Sound effects
+            """
+            self.piece_sfx(move_result)
 
     def get_square_on_pos(self, x, y):
         """
@@ -394,6 +428,7 @@ class MainWindow(tk.Tk):
         self.geometry("800x800")
         self.configure(bg=BG_COLOR)
         self.iconbitmap("data/sprites/icon.ico")
+        self.protocol("WM_DELETE_WINDOW", self.close)
 
         if not debug.DEBUG_LEVEL:
             self.wm_attributes("-fullscreen", True)  # Fullscreen
@@ -418,3 +453,7 @@ class MainWindow(tk.Tk):
         # self.board = Board(self, size=700)
 
         self.board.pack(anchor="center", expand=True)
+
+    def close(self):
+        gui.audio.p.terminate()
+        self.destroy()
