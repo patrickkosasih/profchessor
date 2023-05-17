@@ -156,9 +156,9 @@ class PromotionPrompt:
             """
             Make the move on the ChessGame
             """
-            move_result = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i, promote_to=new_piece_type)
-
-            gui.audio.play_sound("promotion.wav")
+            move_result_int = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i,
+                                                   promote_to=new_piece_type)
+            self.board.move_sfx(rules.MoveResult(move_result_int))
 
             """
             Configure the pawn GUI:
@@ -284,27 +284,27 @@ class Board(tk.Canvas):
                                                                             self.board_size, DEFAULT_FADER_COLOR))
         self.fader = self.create_image(0, 0, image=translucent_fg, anchor="nw")
 
-    def piece_sfx(self, move_result):
-        match move_result % 8:
-            case rules.MoveResults.MOVE:
-                gui.audio.play_sound("move.wav")
+    def move_sfx(self, move_result: rules.MoveResult):
+        # Primary SFX
+        if move_result.capture:
+            gui.audio.play_sound("capture.wav")
 
-            case rules.MoveResults.CAPTURE | rules.MoveResults.EN_PASSANT:
-                gui.audio.play_sound("capture.wav")
+        elif move_result.special:
+            gui.audio.play_sound("castle.wav")
 
-            case rules.MoveResults.CASTLE:
-                gui.audio.play_sound("castle.wav")
+        elif move_result.move_made:
+            gui.audio.play_sound("move.wav")
 
-            case rules.MoveResults.PROMOTION:
-                gui.audio.play_sound("castle.wav")
+        # Secondary SFX
+        if move_result.move_made:
+            if move_result.check:
+                if move_result.game_over:
+                    gui.audio.play_sound("checkmate.wav")
+                else:
+                    gui.audio.play_sound("check.wav")
 
-        if rules.MoveResults.is_move_made(move_result):
-            if rules.MoveResults.is_game_over(move_result) and \
-                    self.game.game_result.details == rules.GameResult.CHECKMATE:
-                gui.audio.play_sound("checkmate.wav")
-
-            elif self.game.check:
-                gui.audio.play_sound("check.wav")
+            if move_result.promotion:
+                gui.audio.play_sound("promotion.wav")
 
 
     """
@@ -322,9 +322,10 @@ class Board(tk.Canvas):
         self.unmark_moves()
 
         if self.dragging and new_square:
-            move_result = self.game.move(self.dragging.square.i, new_square.i)
+            move_result_int = self.game.move(self.dragging.square.i, new_square.i)
+            move_result = rules.MoveResult(move_result_int)
 
-            if rules.MoveResults.is_move_made(move_result):
+            if move_result.move_made:
                 """
                 Make the move
                 """
@@ -335,10 +336,10 @@ class Board(tk.Canvas):
                 self.reset_board(self.game.board)  # Soon to be replaced when the GUI works
                 self.dragging = None
 
-                if rules.MoveResults.is_game_over(move_result):
+                if move_result.game_over:
                     self.game_over_screen()
 
-            elif move_result == rules.MoveResults.PROMPT_PROMOTION:
+            elif move_result.promotion:
                 """
                 Create a promotion prompt
                 """
@@ -350,7 +351,7 @@ class Board(tk.Canvas):
             """
             Sound effects
             """
-            self.piece_sfx(move_result)
+            self.move_sfx(move_result)
 
     def get_square_on_pos(self, x, y):
         """

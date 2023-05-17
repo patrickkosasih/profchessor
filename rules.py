@@ -1,6 +1,9 @@
 """
 rules.py
 
+Profchessor Rules Engine
+by Patrick Kosasih
+
 The Python module that handles chess positions and makes sure that all the piece moves follow the rules of chess.
 
 Terms that are used throughout the module:
@@ -50,6 +53,10 @@ Terms that are used throughout the module:
 
 * En passant pin    : En passant pins are extremely rare cases where an en passant move discovers an attack from the
                       enemy that puts the king in check, making the move illegal.
+
+* Prompt promotion  : Ask the player which piece to promote to. In the `Position.move` method, when a pawn moves to its
+                      8th rank but the piece it wants to promote to isn't specified, the method will return a "prompt
+                      promotion" return value as a cue for the GUI to create a promotion prompt.
 
 * And many more chess terms...
 """
@@ -142,42 +149,78 @@ is 65 x 12 (64 squares x 12 piece types + 12 extra slots for position states).
 """
 
 
-class MoveResults:
+class MoveResult:
     """
-    MoveResults is a class containing the functions and constants to classify a move result that is returned by the
-    move method on the Position class.
+    MoveResult is a class containing the methods and constants to classify a move result that is returned by the
+    `Position.move` method.
 
-    This class only acts as a namespace and should not be instantiated as an object instance
+    The return value of `Position.move` is an integer that represents a binary value, where each bit of the binary value
+    corresponds to one type of move classification (classifier).
+
+    There are 6 types of classifiers for each of the 6 binary bits that can be True or False:
+
+    1   : Is move made
+
+    2   : Capture
+
+    4   : Special move
+        * 2 = False     : Castling move
+        * 2 = True      : En passant
+
+    8   : Promotion
+        * 1 = False     : Prompt promotion
+        * 1 = True      : Promotion move
+
+    16  : Check
+
+    32  : Game over
+        * 1 = False     : Game already over
+        * 1 = True      : Game just ended
+        * 16 = False    : Draw
+        * 16 = True     : Checkmate
+
+    Some examples of integer move results:
+
+        Move result   |       Binary value      |
+        in decimal    |  32  16  8   4   2   1  |  Description
+        --------------+-------------------------+-------------------------------------------
+        1             |  0   0   0   0   0   1  |  Move to an empty square
+        0             |  0   0   0   0   0   0  |  Illegal move
+        19            |  0   1   0   0   1   1  |  Piece captures with check
+        55            |  1   1   1   1   1   1  |  En passant checkmate (poggers)
+        59            |  1   1   1   0   1   1  |  Pawn captures and promotes with checkmate
+        5             |  0   0   0   1   0   1  |  Castling move
+        8             |  0   0   1   0   0   0  |  Prompt the promotion to the user
+        32            |  1   0   0   0   0   0  |  Game already ended
     """
 
-    # Move made
-    MOVE = 1
+    # Classifiers from the binary bits
+    MOVE_MADE = 1
     CAPTURE = 2
-    CASTLE = 3
-    EN_PASSANT = 4
-    PROMOTION = 5
+    SPECIAL = 4
+    PROMOTION = 8
+    CHECK = 16
+    GAME_OVER = 32
 
-    # Move not made
-    ILLEGAL = 0
-    PROMPT_PROMOTION = -1
-    GAME_ALREADY_ENDED = -2
+    def __init__(self, x):
+        # Move classifiers
+        self.move_made = False
+        self.capture = False
+        self.special = False
+        self.promotion = False
+        self.check = False
+        self.game_over = False
 
-    # Check and game over
-    # These values are added to the move result values from above
-    CHECK = 8
-    GAME_OVER = 16
+        # Turn the integer value to the move classifications
+        y = x
+        for attr in vars(self):
+            setattr(self, attr, bool(y & 1))
+            y //= 2
 
-    @staticmethod
-    def is_check(x):
-        return (x & MoveResults.CHECK) // MoveResults.CHECK and x > 0
+        self.x = x
 
-    @staticmethod
-    def is_game_over(x):
-        return (x & MoveResults.GAME_OVER) // MoveResults.GAME_OVER and x > 0
-
-    @staticmethod
-    def is_move_made(x):
-        return x > 0
+    def __int__(self):
+        return self.x
 
 
 class GameResult:
@@ -657,13 +700,27 @@ class Position:
     def move(self, old: int, new: int, promote_to=None):
         """
         Move a piece and update the current position
+
+        :param old: The current square index of the moving piece.
+        :param new: The destination square index of the moving piece.
+
+        :param promote_to:
+        The piece type to promote to on pawn promotions. If the move is a promotion move, this argument must be passed
+        in, or else the method will return a "prompt promotion" return value.
+
+        :return: A move result integer value. Explained in the `MoveResult` class.
         """
 
+        """
+        1. Legalize move
+        """
         if old not in self.legal_moves or new not in self.legal_moves[old]:
-            return MoveResults.ILLEGAL
+            # Move result = Illegal move
+            return 0
 
         elif self.game_result:
-            return MoveResults.GAME_ALREADY_ENDED
+            # Move result = Game already ended
+            return MoveResult.GAME_OVER + MoveResult.CHECK if self.check else 0
 
         # Get piece and captured (piece on destination square)
         piece = self.board[old]
@@ -675,22 +732,29 @@ class Position:
             # If the pawn reached the other side, then it's a pawn promotion. If the move is a pawn promotion and the
             # piece to promote to is still not determined, then the move is not made
             if not promote_to:
-                return MoveResults.PROMPT_PROMOTION
+                # Move result = Prompt promotion (move not made)
+                return MoveResult.PROMOTION
 
             assert promote_to in PIECE_TYPES
 
             promote_to = promote_to.upper() if self.turn else promote_to.lower()
 
-        move_result = MoveResults.MOVE  # Return value
+        move_result = MoveResult.MOVE_MADE
+        """
+        move_result is the return value for this method.
+        
+        This variable must only be added by another value, and mustn't be directly set
+        (e.g. don't write `move_result = MoveResult.CHECK`)
+        """
 
         """
-        Move the piece / promote the pawn
+        2. Move the piece / promote the pawn
         """
         self.board[new] = piece if not pawn_promotion else promote_to
         self.board[old] = ""
 
         """
-        Update piece squares list
+        3. Update piece squares list
         (En passant pawns and castled rooks are updated later)
         """
         ally_pieces = self.white_pieces if self.turn else self.black_pieces
@@ -703,7 +767,7 @@ class Position:
             enemy_pieces.remove(new)
 
         """
-        En passant
+        4. En passant
         """
         new_en_passantable = False
         if piece in ("P", "p"):
@@ -729,13 +793,14 @@ class Position:
 
                 enemy_pieces.remove(en_passanted_square)  # Update pieces list for en passant moves
 
-                move_result = MoveResults.EN_PASSANT
+                move_result += MoveResult.SPECIAL  # Move is an en passant move
+                                                   # MoveResult.CAPTURE will be added later
 
         if not new_en_passantable:
             self.en_passantable = -1
 
         """
-        Castling
+        5. Castling
         """
         for side, squares in CASTLING_SQUARES.items():
             if old == squares[0] or old == squares[3] or new == squares[3]:
@@ -763,15 +828,15 @@ class Position:
                     ally_pieces.remove(rook_old)  # Update pieces list for castling moves
                     ally_pieces.append(rook_new)
 
-                    move_result = MoveResults.CASTLE
+                    move_result += MoveResult.SPECIAL  # Move is a castling move
 
         """
-        Update:
-        1. Halfmove clock
-        2. Turn
-        3. Move number
-        4. Hash
-        5. Repetitions
+        6. Update:
+            a. Halfmove clock
+            b. Turn
+            c. Move number
+            d. Hash
+            e. Repetitions
         """
         if piece in ("P", "p") or captured_piece:
             self.halfmove_clock = 0
@@ -791,23 +856,29 @@ class Position:
             self.repetitions[self.zobrist_hash] = 1
 
         """
-        Update moves
+        7. Update moves
         """
         self.update_moves()
 
         """
-        Update return value for captures and check
+        8. Update move_result for:
+            a. Captures
+            b. Checks
+            c. Promotions
         """
-        if captured_piece and move_result != MoveResults.EN_PASSANT:
-            move_result = MoveResults.CAPTURE
+        if captured_piece:
+            move_result += MoveResult.CAPTURE
 
         if self.check:
-            move_result += MoveResults.CHECK
+            move_result += MoveResult.CHECK
+
+        if pawn_promotion:
+            move_result += MoveResult.PROMOTION
 
         """
-        Game over detection
+        9. Game over detection
         """
-        move_result += MoveResults.GAME_OVER
+        move_result += MoveResult.GAME_OVER
         # Temporarily adds the move result with MoveResult.GAME_OVER
         # If the game is not over then the value is subtracted back
 
@@ -828,7 +899,7 @@ class Position:
             self.game_result = GameResult(GameResult.DRAW, GameResult.INSUFFICIENT_MATERIAL)
 
         else:
-            move_result -= MoveResults.GAME_OVER
+            move_result -= MoveResult.GAME_OVER
 
         return move_result
 
@@ -1084,13 +1155,14 @@ class ChessGame(Position):
         self.position_history.append(self.copy())
 
     def move(self, old: int, new: int, promote_to=None):
-        move_result = super().move(old, new, promote_to)
+        move_result_int = super().move(old, new, promote_to)
+        move_result = MoveResult(move_result_int)
 
         """"
         Basic check and checkmate/stalemate indicator
         Will be changed to something better when the GUI is done
         """
-        if MoveResults.is_game_over(move_result):
+        if move_result.game_over:
             match self.game_result.details:
                 case GameResult.CHECKMATE:
                     winner = "Black" if self.turn else "White"
@@ -1108,10 +1180,10 @@ class ChessGame(Position):
                 case GameResult.INSUFFICIENT_MATERIAL:
                     print("Draw: Insufficient checkmating material!")
 
-        elif MoveResults.is_check(move_result):
+        elif move_result.check:
             print("Check!")
 
-        if MoveResults.is_move_made(move_result):
+        if move_result.move_made:
             prev = self.position_history[-1]
             algebraic_trail = '#' if (self.game_result and self.game_result.details == GameResult.CHECKMATE) else \
                 ('+' if self.check else "")
@@ -1127,4 +1199,4 @@ class ChessGame(Position):
 
         self.position_history.append(self.copy())
 
-        return move_result
+        return move_result_int

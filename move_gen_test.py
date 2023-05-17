@@ -31,7 +31,9 @@ class PositionDebugger(rules.Position):
             for new in self.legal_moves[old]:
                 new_copy, move_result = self.copy_and_move(old, new)
 
-                if move_result % 8 == rules.MoveResults.PROMPT_PROMOTION:
+                if move_result & rules.MoveResult.PROMOTION:
+                    # If the move is a promotion move, branch out for every piece it can promote to
+
                     for x in "QRBN":
                         promotion_new_copy, _ = self.copy_and_move(old, new, promote_to=x)
                         count += promotion_new_copy.search(depth - 1)
