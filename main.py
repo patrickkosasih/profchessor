@@ -1,11 +1,11 @@
-from gui import game_gui
+from gui.game_gui import MainWindow
 import debug
 import move_gen_test
 
 
 def main():
     if debug.DEBUG_LEVEL < 1000:
-        game_gui.MainWindow().mainloop()
+        MainWindow().mainloop()
     else:
         move_gen_test.main()
 
