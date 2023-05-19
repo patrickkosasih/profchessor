@@ -1,10 +1,10 @@
 import tkinter as tk
-import winsound
 
 import gui.audio
 import rules
 import debug
 from gui import sprites, shared_gui
+from gui.animations.move import *
 
 BG_COLOR = "#2b3030"
 DARK_SQUARE_COLOR = "#855313"
@@ -30,20 +30,25 @@ class Piece:
         sprite = Piece.psg.piece_to_sprite(piece_type)
         self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor=tk.CENTER)
 
+        self.animation = None
+
     def __int__(self):
         return self.canvas_item
 
     def __str__(self):
         return f"Piece(type={self.piece_type})"
 
-    def move_center(self, x, y):
-        # ctr_x = x - self.square.size / 2
-        # ctr_y = y - self.square.size / 2
-        # self.board.moveto(self.canvas_item, ctr_x, ctr_y)
-        self.board.coords(self.canvas_item, x, y)
+    def move(self, x, y, duration=0, interpolation=Interpolations.quadratic):
+        if duration == 0:
+            # Direct movement
+            self.board.coords(self.canvas_item, x, y)
+        else:
+            # Animated movement
+            self.animation = MovePieceAnimation(duration, self.board, self.canvas_item, (), (x, y), interpolation)
+            self.animation.start()
 
-    def move_to_square(self, new_square):
-        self.move_center(*new_square.get_center())
+    def move_to_square(self, new_square, duration=0):
+        self.move(*new_square.get_center(), duration)
 
         if new_square is self.square:
             return
@@ -329,11 +334,9 @@ class Board(tk.Canvas):
                 """
                 Make the move
                 """
-
-                self.dragging.move_to_square(new_square)
+                self.dragging.move_to_square(new_square, duration=0.1)
 
                 cancel_move = False
-                self.reset_board(self.game.board)  # Soon to be replaced when the GUI works
                 self.dragging = None
 
                 if move_result.game_over:
@@ -366,7 +369,7 @@ class Board(tk.Canvas):
 
     def cancel_move(self):
         if self.dragging:
-            self.dragging.move_to_square(self.dragging.square)
+            self.dragging.move_to_square(self.dragging.square, duration=0.2)
             self.dragging = None
 
     def mark_moves(self, square: int):
@@ -399,13 +402,13 @@ class Board(tk.Canvas):
             self.dragging = self.get_square_on_pos(event.x, event.y).piece
 
             if self.dragging:
-                self.dragging.move_center(event.x, event.y)
+                self.dragging.move(event.x, event.y)
                 self.mark_moves(self.dragging.square.i)
                 self.lift(self.dragging.canvas_item)  # Order dragging piece to the topmost layer
 
     def mouse_motion(self, event):
         if self.dragging:
-            self.dragging.move_center(event.x, event.y)
+            self.dragging.move(event.x, event.y)
 
     def mouse_release(self, event):
         """

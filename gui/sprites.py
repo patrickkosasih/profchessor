@@ -1,5 +1,8 @@
 """
-Note: PhotoImage objects must be a global variable/attribute, otherwise Tkinter won't display the image
+sprites.py
+
+The module that stores multiple PhotoImage objects into a sprite group in order to store PhotoImage objects globally
+with ease. PhotoImage objects must be a global variable/attribute, otherwise Tkinter won't display the image.
 """
 
 from PIL import Image, ImageTk
@@ -10,8 +13,8 @@ import json
 class SpriteGroup:
     """
     SpriteGroup is used to create a PhotoImage object and store it on a dictionary
-    An instance of this class is ought to be created globally, because objects that are stored locally are deleted
-    once the function call ends, causing images to not display properly on the Tkinter window
+    An instance of this class should be created globally, because objects that stored locally are deleted once the
+    function call ends, which can cause images to not display properly on the Tkinter window.
     """
 
     def __init__(self):
