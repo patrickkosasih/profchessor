@@ -149,6 +149,11 @@ is 65 x 12 (64 squares x 12 piece types + 12 extra slots for position states).
 """
 
 
+"""
+=================================
+MoveResult and GameResult classes
+=================================
+"""
 class MoveResult:
     """
     MoveResult is a class containing the methods and constants to classify a move result that is returned by the
@@ -295,21 +300,41 @@ Misc functions
 
 def is_tracer_at_edge(tracer, offset):
     """
-    This function is used on generating moves on a piece
+    This function is used on generating moves on a piece.
 
-    On sliding pieces (rooks, bishops, and queens), when the current tracer is on the edge of a board, and it goes out
-    of bound if added a certain offset value, this function returns False and serves as a cue for the tracer to stop
-    generating moves for the current direction of tracing
+    When the given tracer goes out of bounds when added a certain offset value, this function returns True and serves as
+    a cue for the tracer to stop tracing for its current direction/offset.
 
-    On jumping pieces (knights and kings), if the square it is on added by the offset value is outside the board, this
-    function returns False, indicating that the destination square is invalid and shouldn't be added to the legal moves
-    list
+    To detect a tracer at edge, the code uses another type of square indexing called "edge square indexing" which goes
+    from 0-119 instead of 0-63. It works by having imaginary "edge squares" like the following:
+
+      Normal square indexing                       Edge square indexing
+
+      +--------------------------------+            0	1	2	3	4	5	6	7	8	 9
+      | 0	1	2	3	4	5	6	7  |           10   11	12	13	14	15	16	17	18   19
+      | 8	9	10	11	12	13	14	15 |              +--------------------------------+
+      | 16	17	18	19	20	21	22	23 |           20 | 21	22	23	24	25	26	27	28 | 29
+      | 24	25	26	27	28	29	30	31 |           30 | 31	32	33	34	35	36	37	38 | 39
+      | 32	33	34	35	36	37	38	39 |           40 | 41	42	43	44	45	46	47	48 | 49
+      | 40	41	42	43	44	45	46	47 |           50 | 51	52	53	54	55	56	57	58 | 59
+      | 48	49	50	51	52	53	54	55 |           60 | 61	62	63	64	65	66	67	68 | 69
+      | 56	57	58	59	60	61	62	63 |           70 | 71	72	73	74	75	76	77	78 | 79
+      +--------------------------------+           80 | 81	82	83	84	85	86	87	88 | 89
+                                                   90 | 91	92	93	94	95	96	97	98 | 99
+                                                      +--------------------------------+
+                                                   100	101	102	103	104	105	106	107	108	 109
+                                                   110	111	112	113	114	115	116	117	118	 119
+
+    The numbers that are outside the 8x8 square above are edge squares.
+
+    Firstly, the tracer and the offset are converted into their edge square indexes named `j_tracer` and `j_offset`
+    respectively. If the j_tracer + j_offset value lands on an edge square, then the tracer is at the edge and this
+    function returns True.
     """
-    tracer_xy = i_to_xy(tracer)
-    offset_xy = offset_to_xy(offset)
+    j_tracer = 21 + tracer // 8 * 10 + tracer % 8  # Edge square index of tracer
+    j_offset = offset + (offset + 4) // 8 * 2  # Edge square index of offset
 
-    x, y = tracer_xy[0] + offset_xy[0], tracer_xy[1] + offset_xy[1]
-    return not (0 <= x <= 7 and 0 <= y <= 7)
+    return not (21 <= j_tracer + j_offset <= 98 and (j_tracer + j_offset) % 10 not in (0, 9))
 
 
 """
@@ -430,7 +455,9 @@ class Position:
 
         for offset in MOVE_OFFSETS[piece_type]:
             """
-            `for offset in MOVE_OFFSETS[piece_type]:`
+            ======
+            Tracer
+            ======
 
             For every piece, there is a number of set offsets. The entire block of code inside this loop represents one
             tracer with its own offset and the path that's being traced by it.
@@ -469,7 +496,9 @@ class Position:
 
             for _ in range(trace_distance):
                 """
-                `for _ in range(trace_distance):`
+                ===========
+                Tracer step
+                ===========
                 
                 The block of code being run inside this loop represents the path of the tracer being traced, or the
                 tracer going from its starting square to its end step by step
@@ -484,9 +513,9 @@ class Position:
 
                 if tracer_piece:
                     """
-                    ========================================
-                    The tracer has encountered another piece
-                    ========================================
+                    ===========================================
+                    1. The tracer has encountered another piece
+                    ===========================================
                     
                     Determine whether the tracer piece should be appended to the return value or not:
                     
@@ -547,7 +576,7 @@ class Position:
                                 if self.checking_piece >= 0:
                                     # If there is already another checking piece, then it's a double check
                                     self.checking_piece = -2
-                                    self.checking_piece = []
+                                    self.checking_path = []
                                 else:
                                     self.checking_piece = square
                                     self.checking_path = tracer_path.copy()
@@ -624,9 +653,9 @@ class Position:
                 elif not pawn_capture or controlling_only or (tracer == self.en_passantable and
                                                               square != self.en_passant_pinned):
                     """
-                    ============================
-                    Tracer is on an empty square
-                    ============================
+                    ===============================
+                    2. Tracer is on an empty square
+                    ===============================
                     
                     1. Tracer is on an available empty square
                     2. The current offset is a pawn capture offset and controlling_only is True
@@ -661,8 +690,10 @@ class Position:
                         tracer_path.append(tracer)
                         break
 
-                if is_tracer_at_edge(tracer, offset) and not pawn_capture:
-                    # The tracer has reached the edge of the board
+                if is_tracer_at_edge(tracer, offset):
+                    """
+                    3. The tracer has reached the edge of the board
+                    """
                     break
 
                 # Continue tracing
