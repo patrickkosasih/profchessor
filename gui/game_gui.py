@@ -38,7 +38,7 @@ class Piece:
     def __str__(self):
         return f"Piece(type={self.piece_type})"
 
-    def move(self, x, y, duration=0, interpolation=Interpolations.quadratic):
+    def move(self, x, y, duration=0.0, interpolation=Interpolations.quadratic):
         if duration == 0:
             # Direct movement
             self.board.coords(self.canvas_item, x, y)
@@ -47,7 +47,7 @@ class Piece:
             self.animation = MovePieceAnimation(duration, self.board, self.canvas_item, (), (x, y), interpolation)
             self.animation.start()
 
-    def move_to_square(self, new_square, duration=0):
+    def move_to_square(self, new_square, duration=0.0):
         self.move(*new_square.get_center(), duration)
 
         if new_square is self.square:
@@ -161,9 +161,9 @@ class PromotionPrompt:
             """
             Make the move on the ChessGame
             """
-            move_result_int = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i,
-                                                   promote_to=new_piece_type)
-            self.board.move_sfx(rules.MoveResult(move_result_int))
+            move_result = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i,
+                                               promote_to=new_piece_type)
+            self.board.move_sfx(move_result)
 
             """
             Configure the pawn GUI:
@@ -178,6 +178,7 @@ class PromotionPrompt:
             The mouse clicks outside the promotion buttons: Cancel the promotion move
             """
             self.pawn.set_hidden(False)
+            self.board.cancel_move(self.pawn)
 
         """
         Delete all the buttons of the promotion prompt
@@ -245,6 +246,58 @@ class Board(tk.Canvas):
     """
     General GUI methods
     """
+    def move_piece(self, piece: Piece, new_square: Square):
+        """
+        Move a GUI piece.
+
+        Before moving a piece, this method calls the move method in the ChessGame instance with the correct arguments.
+        Based on the move results, if the move is legal, then the GUI piece is moved. If the move result is to ask the
+        promoting piece, a promotion prompt is created. If the move is a special move, the rook gets moved (castling)
+        or the en passanted pawn is removed (en passant).
+
+        """
+        move_result = self.game.move(piece.square.i, new_square.i)
+
+        if move_result.move_made:
+            """
+            Move the GUI piece
+            """
+            piece.move_to_square(new_square, duration=0.1)
+
+            """
+            Secondary move for special moves
+            
+            En passant  : Remove the en passanted pawn
+            Castling    : Move the rook
+            """
+            if type(move_result.special_squares) is int:
+                # En passant
+                en_passanted_square = self.squares[move_result.special_squares]
+                en_passanted_square.remove_piece()
+
+            elif type(move_result.special_squares) is tuple:
+                # Castling
+                rook_old, rook_new = move_result.special_squares  # Integer values
+
+                rook: Piece = self.squares[rook_old].piece
+                rook_new_square: Square = self.squares[rook_new]
+
+                rook.move_to_square(rook_new_square, duration=0.25)
+
+            self.move_sfx(move_result)
+
+            if move_result.game_over:
+                self.game_over_screen()
+
+        elif move_result.promotion:
+            """
+            Create a promotion prompt
+            """
+            self.promotion_prompt = PromotionPrompt(self, new_square, piece)
+
+        else:
+            self.cancel_move()
+
     def reset_board(self, board_data: list[64]):
         if self.dragging:
             self.delete(self.dragging.canvas_item)
@@ -315,46 +368,6 @@ class Board(tk.Canvas):
     """
     Mouse actions
     """
-    def move_piece(self, piece: Piece, new_square: Square):
-        """
-        Moves a piece. Before moving a piece, this method checks the GUI conditions for a piece to move, and then runs
-        the move method in the ChessGame instance with the correct arguments. Based on the move results, if the move is
-        legal, then the gui piece is moved, and if the move result is to ask the promoting piece, a promotion prompt
-        is created.
-        """
-
-        cancel_move = True
-        self.unmark_moves()
-
-        if self.dragging and new_square:
-            move_result = self.game.move(self.dragging.square.i, new_square.i)
-
-            if move_result.move_made:
-                """
-                Make the move
-                """
-                self.dragging.move_to_square(new_square, duration=0.1)
-
-                cancel_move = False
-                self.dragging = None
-
-                if move_result.game_over:
-                    self.game_over_screen()
-
-            elif move_result.promotion:
-                """
-                Create a promotion prompt
-                """
-                self.promotion_prompt = PromotionPrompt(self, new_square, piece)
-
-            if cancel_move:
-                self.cancel_move()  # Put back piece to original square and self.dragging = None
-
-            """
-            Sound effects
-            """
-            self.move_sfx(move_result)
-
     def get_square_on_pos(self, x, y):
         """
         Returns the square that is on a specified position relative to the board
@@ -366,10 +379,14 @@ class Board(tk.Canvas):
         sqx, sqy = int(x // self.square_size), int(y // self.square_size)
         return self.squares[sqx + sqy * 8]
 
-    def cancel_move(self):
-        if self.dragging:
-            self.dragging.move_to_square(self.dragging.square, duration=0.2)
-            self.dragging = None
+    def cancel_move(self, piece=None):
+        if not piece and self.dragging:
+            piece = self.dragging
+
+        if piece:
+            piece.move_to_square(piece.square, duration=0.2)
+
+        self.dragging = None
 
     def mark_moves(self, square: int):
         size = int(self.square_size)
@@ -413,12 +430,19 @@ class Board(tk.Canvas):
         """
         Releasing the mouse while dragging a piece makes a move on the chess board
         """
+        self.unmark_moves()
         square_on_cursor = self.get_square_on_pos(event.x, event.y)
 
         if self.promotion_prompt:
             self.promotion_prompt.mouse_click(square_on_cursor)
+
         else:
-            self.move_piece(self.dragging, square_on_cursor)
+            if self.dragging and square_on_cursor:
+                self.move_piece(self.dragging, square_on_cursor)
+            else:
+                self.cancel_move()
+
+        self.dragging = None
 
     def right_mouse_click(self, event):
         self.unmark_moves()
