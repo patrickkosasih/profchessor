@@ -62,7 +62,6 @@ Terms that are used throughout the module:
 """
 import copy
 import random
-import time
 
 import debug
 
@@ -208,7 +207,14 @@ class MoveResult:
     GAME_OVER = 32
 
     def __init__(self, x):
-        # Move classifiers
+        """
+        `MoveResult` can be initialized as an object in order to decode a move result integer value (`x`) into separate
+        boolean values and to add extra information on the move such as the algebraic notation and the special squares.
+        """
+
+        """
+        Basic move classifiers
+        """
         self.move_made = False
         self.capture = False
         self.special = False
@@ -223,6 +229,32 @@ class MoveResult:
             y //= 2
 
         self.x = x
+
+        """
+        Extra attributes
+        
+        These attributes optional for a `MoveResult` instance. One of the usages is in the `move` method of the
+        `ChessGame` subclass.
+        """
+
+        self.algebraic = ""
+        self.special_squares = None
+        """
+        `special_squares` is one of the additional attributes of `MoveResult`
+        
+        When a special move is made, the key squares responsible for a special move can optionally be set as an
+        attribute of this class by methods such as the `ChessGame.move` method in order for the GUI to handle special
+        moves. The type of this attribute can be None, int, or tuple depending on the move classification:
+        
+        1. En passant
+            An integer value that represents the square of the captured pawn.
+            
+        2. Castling
+            A tuple of 2 integer values that represents the square of the rook and the square it moves to.
+            
+        3. Neither en passant nor castling
+            None
+        """
 
     def __int__(self):
         return self.x
@@ -728,7 +760,7 @@ class Position:
                             for square in (self.white_pieces if self.turn else self.black_pieces)}
 
     # @debug.func_timer
-    def move(self, old: int, new: int, promote_to=None):
+    def move(self, old: int, new: int, promote_to=None) -> int:
         """
         Move a piece and update the current position
 
@@ -1075,83 +1107,106 @@ class Position:
         piece = self.board[old]
         piece_type = piece.upper()
 
-        en_passant = piece_type == "P" and new == self.en_passantable
-        capture = self.board[new] != "" or en_passant
+        """
+        0. Castling move notation
+        
+        If the move is a castling move, then the notation is either "O-O" or "O-O-O" and steps 1-6 are skipped.
+        """
+        if piece_type == "K" and abs(new - old) == 2:
+            if new > old:
+                # Castle kingside
+                ret = "O-O"
+            else:
+                # Castle queenside
+                ret = "O-O-O"
 
-        old_coor = i_to_coordinate(old)
-        new_coor = i_to_coordinate(new)
+        else:
+            en_passant = piece_type == "P" and new == self.en_passantable
+            capture = self.board[new] != "" or en_passant
+
+            old_coor = i_to_coordinate(old)
+            new_coor = i_to_coordinate(new)
+
+            """
+            1. Piece type
+    
+            The moving pieces (other than pawns) are identified by an uppercase letter. Pawns are identified by the file
+            it's on before moving (only on pawn captures).
+            """
+            if piece_type != "P":
+                ret += piece_type
+            elif capture:
+                ret += i_to_coordinate(old)[0]
+
+            """
+            2. Disambiguating moves
+    
+            If more than one piece of the same type can move to the destination square, then the move notation identifies
+            which piece is moved by using the moving piece's file, rank, or coordinate (in order from highest to lowest
+            priority).
+            """
+            if piece_type != "P":
+                disambiguate = False
+                different_files = True
+                different_ranks = True
+
+                for other_piece_square, other_legal_squares in self.legal_moves.items():
+                    other_piece = self.board[other_piece_square]
+
+                    if other_piece == piece and other_piece_square != old and new in other_legal_squares:
+                        disambiguate = True
+                        other_coor = i_to_coordinate(other_piece_square)
+
+                        if old_coor[0] == other_coor[0]:
+                            different_files = False
+
+                        if old_coor[1] == other_coor[1]:
+                            different_ranks = False
+
+                if disambiguate:
+                    if different_files:
+                        ret += old_coor[0]
+                    elif different_ranks:
+                        ret += old_coor[1]
+                    else:
+                        ret += old_coor
+
+            """
+            3. Capture ("x")
+    
+            If the move is a capture, then an "x" is added before the coordinate of the new square
+            """
+            if capture:
+                ret += "x"
+
+            """
+            4. The coordinate of new square
+            """
+            ret += new_coor
+
+            """
+            5. Pawn promotion ("=_")
+    
+            Pawn promotion moves are notated by adding "=(the piece it promotes to)".
+            """
+            if promote_to:
+                ret += f"={promote_to.upper()}"
+
+            """
+            6. En passant ("e.p.")
+            """
+            if en_passant:
+                ret += " e.p."
 
         """
-        1. Piece type
-
-        The moving pieces (other than pawns) are identified by an uppercase letter. Pawns are identified by the file
-        it's on before moving (only on pawn captures).
+        7. Check ("+") or checkmate ("#")
+        
+        Creates a copy of the current position and determines if the position after moving is in check (add "+") or
+        checkmate (add "#").
+        
+        This is only done if the `auto_detect_check` parameter is True. `auto_detect_check` defaults to False in order
+        to save performance time because copying a position is relatively slow.
         """
-        if piece_type != "P":
-            ret += piece_type
-        elif capture:
-            ret += i_to_coordinate(old)[0]
-
-        """
-        2. Disambiguating moves
-
-        If more than one piece of the same type can move to the destination square, then the move notation identifies
-        which piece is moved by using the moving piece's file, rank, or coordinate (in order from highest to lowest
-        priority).
-        """
-        if piece_type != "P":
-            disambiguate = False
-            different_files = True
-            different_ranks = True
-
-            for other_piece_square, other_legal_squares in self.legal_moves.items():
-                other_piece = self.board[other_piece_square]
-
-                if other_piece == piece and other_piece_square != old and new in other_legal_squares:
-                    disambiguate = True
-                    other_coor = i_to_coordinate(other_piece_square)
-
-                    if old_coor[0] == other_coor[0]:
-                        different_files = False
-
-                    if old_coor[1] == other_coor[1]:
-                        different_ranks = False
-
-            if disambiguate:
-                if different_files:
-                    ret += old_coor[0]
-                elif different_ranks:
-                    ret += old_coor[1]
-                else:
-                    ret += old_coor
-
-        """
-        3. Capture ("x")
-
-        If the move is a capture, then an "x" is added before the coordinate of the new square
-        """
-        if capture:
-            ret += "x"
-
-        """
-        4. The coordinate of new square
-        """
-        ret += new_coor
-
-        """
-        5. Pawn promotion ("=_")
-
-        Pawn promotion moves are notated by adding "=(the piece it promotes to)".
-        """
-        if promote_to:
-            ret += f"={promote_to.upper()}"
-
-        """
-        6. Check ("+"), checkmate ("#"), and en passant ("e.p.")
-        """
-        if en_passant:
-            ret += " e.p."
-
         if auto_detect_check:
             moved, _ = self.copy_and_move(old, new, promote_to)
 
@@ -1185,43 +1240,40 @@ class ChessGame(Position):
 
         self.position_history.append(self.copy())
 
-    def move(self, old: int, new: int, promote_to=None):
+    def move(self, old: int, new: int, promote_to=None) -> MoveResult:
+        """
+        The move method of `ChessGame` has additional processes that is not done by the original `Position.move` method.
+        Some of them are:
+
+        1. Updating the move history
+        2. Returns a `MoveResult` instance instead of a move result in integer format.
+        3. The returned `MoveResult` instance has additional properties:
+            a. Special squares: The square(s) responsible for a special move (only if a special move is made)
+            b. Algebraic notation
+        """
+
+        """
+        Call superclass method and store move result
+        """
         move_result_int = super().move(old, new, promote_to)
         move_result = MoveResult(move_result_int)
 
-        """"
-        Basic check and checkmate/stalemate indicator
-        Will be changed to something better when the GUI is done
-        """
-        if move_result.game_over:
-            match self.game_result.details:
-                case GameResult.CHECKMATE:
-                    winner = "Black" if self.turn else "White"
-                    print(f"Checkmate! {winner} wins! ")
-
-                case GameResult.STALEMATE:
-                    print("Draw: Stalemate!")
-
-                case GameResult.FIFTY_MOVE:
-                    print("Draw: Fifty move rule reached!")
-
-                case GameResult.REPETITION:
-                    print("Draw: Threefold repetition!")
-
-                case GameResult.INSUFFICIENT_MATERIAL:
-                    print("Draw: Insufficient checkmating material!")
-
-        elif move_result.check:
-            print("Check!")
-
         if move_result.move_made:
+            """
+            Algebraic notation
+            """
             prev = self.position_history[-1]
             algebraic_trail = '#' if (self.game_result and self.game_result.details == GameResult.CHECKMATE) else \
                 ('+' if self.check else "")
 
-            print(f"{prev.move_num}{'.' if prev.turn else '...'} "
-                  f"{prev.algebraic(old, new, promote_to, auto_detect_check=False)}{algebraic_trail}")
+            move_result.algebraic = prev.algebraic(old, new, promote_to) + algebraic_trail
+            # Additional algebraic notation attribute for the `MoveResult` instance
 
+            print(f"{prev.move_num}{'.' if prev.turn else '...'} {move_result.algebraic}")
+
+            """
+            Debugger stuff
+            """
             if 2 <= debug.DEBUG_LEVEL < 1000:
                 print(f"\n"
                       f"Move {self.move_num} for {'white' if self.turn else 'black'}\n"
@@ -1230,4 +1282,27 @@ class ChessGame(Position):
 
         self.position_history.append(self.copy())
 
-        return move_result_int
+        """
+        Recalculate special squares
+        """
+        if move_result.special:
+            if move_result.capture:
+                # En passant
+                pawn = self.board[new]  # The moved pawn: Can be "P" or "p"
+                captured_square = new - MOVE_OFFSETS[pawn][0]  # The square index of the captured pawn: The square
+                                                               # behind the moved pawn after capturing
+
+                move_result.special_squares = captured_square
+
+            else:
+                # Castling
+                for squares in CASTLING_SQUARES.values():
+                    if new == squares[2]:
+                        # If king moved to the new square of a side, then determine the rook move
+                        move_result.special_squares = squares[3], squares[1]
+                        break
+
+            assert move_result.special_squares
+            # print("Special move:", move_result.special_squares)
+
+        return move_result

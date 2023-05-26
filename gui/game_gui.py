@@ -327,8 +327,7 @@ class Board(tk.Canvas):
         self.unmark_moves()
 
         if self.dragging and new_square:
-            move_result_int = self.game.move(self.dragging.square.i, new_square.i)
-            move_result = rules.MoveResult(move_result_int)
+            move_result = self.game.move(self.dragging.square.i, new_square.i)
 
             if move_result.move_made:
                 """
