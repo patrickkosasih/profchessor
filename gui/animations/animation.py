@@ -1,10 +1,16 @@
+"""
+gui/animations/animation.py
+
+The Python module that contains the Animation base class and other shared classes and functions for creating animations.
+"""
+
 import threading
 import time
 from abc import ABC, abstractmethod
 
 
 class Animation(ABC):
-    def __init__(self, duration, fps=120, min_phase=0, max_phase=1):
+    def __init__(self, duration, fps=60, min_phase=0, max_phase=1):
         self.duration = duration
         self.fps = fps
         self.period = 1 / fps
@@ -37,20 +43,17 @@ class Animation(ABC):
 
         self.phase = self.max_phase
         self.tick()
+        self.finished()
 
     @abstractmethod
     def tick(self):
         pass
 
-# Example "animation"
+    @abstractmethod
+    def finished(self):
+        pass
 
-# class Thingy(Animation, ABC):
-#     def __init__(self, duration, *args, **kwargs):
-#         super().__init__(duration)
-#
-#     def tick(self):
-#         print(self.phase)
-#
-#
-# Thingy(1).start()
-# time.sleep(2)
+
+class Interpolations:
+    linear = lambda x: x
+    ease_out = lambda x: -(x * x) + 2 * x  # Simple ease out function: f(x) = -x^2 + 2x

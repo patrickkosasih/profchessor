@@ -2,12 +2,7 @@ from abc import ABC
 import tkinter as tk
 import math
 
-from gui.animations.animation import Animation
-
-
-class Interpolations:
-    linear = lambda x: x
-    quadratic = lambda x: - (x * x) + 2 * x  # f(x) = -x^2 + 2x
+from gui.animations.animation import Animation, Interpolations
 
 
 class MovePieceAnimation(Animation, ABC):
@@ -30,7 +25,7 @@ class MovePieceAnimation(Animation, ABC):
         super().__init__(duration, *args, **kwargs)
 
         self.board = board
-        self.canvas_item = piece
+        self.piece = piece
         self.start_pos = start_pos if start_pos else board.coords(piece)
         self.end_pos = end_pos
         self.interpolation = interpolation
@@ -41,5 +36,8 @@ class MovePieceAnimation(Animation, ABC):
         x = self.start_pos[0] + (self.end_pos[0] - self.start_pos[0]) * interpol_phase
         y = self.start_pos[1] + (self.end_pos[1] - self.start_pos[1]) * interpol_phase
 
-        self.board.coords(self.canvas_item, x, y)
+        self.board.coords(self.piece, x, y)
         # self.board.root.update()
+
+    def finished(self):
+        self.board.coords(self.piece, *self.end_pos)

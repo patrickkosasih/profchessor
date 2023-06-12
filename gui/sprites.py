@@ -36,7 +36,7 @@ class SpriteGroup:
 
         return self.sprite_dict[path]
 
-    def add_photo(self, name: str, photo: ImageTk.PhotoImage=None):
+    def add_photo(self, name, photo: ImageTk.PhotoImage=None):
         """
         Adds a PhotoImage object to the sprite dict of the sprite group
         The newly added photo is also returned
@@ -53,14 +53,14 @@ class PieceSpriteGroup(SpriteGroup):
     PieceSpriteGroup is used to easily access PhotoImage objects based on a given piece type
     """
 
-    def __init__(self, piece_map):
+    def __init__(self, piece_map, piece_size=100):
         """
         :param piece_map: The JSON file that contains the {piece: file path} pairs
         """
         super().__init__()
 
         # Attributes
-        self.piece_size = 60  # Coming soon: resize method that resizes all sprites
+        self.piece_size = piece_size
 
         # Load the json file into a dictionary
         with open(piece_map, "r") as f:
@@ -73,3 +73,16 @@ class PieceSpriteGroup(SpriteGroup):
 
     def piece_to_sprite(self, piece_type):
         return self.open(self.sprite_paths[piece_type], (self.piece_size, self.piece_size))
+
+    def resize_all(self, size):
+        if size == self.piece_size:
+            return
+
+        self.piece_size = size
+
+        for x in self.sprite_dict:
+            original = ImageTk.getimage(self.sprite_dict[x])  # PIL.Image object
+            resized = original.resize((size, size))
+            resized_photo = ImageTk.PhotoImage(resized)
+
+            self.sprite_dict[x] = resized_photo

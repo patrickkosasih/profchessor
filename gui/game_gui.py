@@ -4,6 +4,7 @@ import gui.audio
 import rules
 import debug
 from gui import sprites, shared_gui
+from gui.animations.frames import ScalePieceAnimation
 from gui.animations.move import *
 
 BG_COLOR = "#2b3030"
@@ -13,9 +14,7 @@ DEFAULT_FADER_COLOR = "#14110a"
 
 
 class Piece:
-    psg = sprites.PieceSpriteGroup("data/sprites/pieces/piece_map.json")
-
-    def __init__(self, board: tk.Canvas, piece_type, square, bind_to_square=True):
+    def __init__(self, board: "Board", piece_type, square, bind_to_square=True):
         if piece_type not in rules.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
@@ -26,9 +25,8 @@ class Piece:
         if bind_to_square:
             self.square.piece = self
 
-        Piece.psg.piece_size = int(self.square.size * 0.9)
-        sprite = Piece.psg.piece_to_sprite(piece_type)
-        self.canvas_item = board.create_image(*square.get_center(), image=sprite, anchor=tk.CENTER)
+        self.sprite = board.psg.piece_to_sprite(piece_type)
+        self.canvas_item = board.create_image(*square.get_center(), image=self.sprite, anchor=tk.CENTER)
 
         self.animation = None
 
@@ -38,7 +36,7 @@ class Piece:
     def __str__(self):
         return f"Piece(type={self.piece_type})"
 
-    def move(self, x, y, duration=0.0, interpolation=Interpolations.quadratic):
+    def move(self, x, y, duration=0.0, interpolation=Interpolations.ease_out):
         if duration == 0:
             # Direct movement
             self.board.coords(self.canvas_item, x, y)
@@ -47,7 +45,7 @@ class Piece:
             self.animation = MovePieceAnimation(duration, self.board, self.canvas_item, (), (x, y), interpolation)
             self.animation.start()
 
-    def move_to_square(self, new_square, duration=0.0):
+    def move_to_square(self, new_square: "Square", duration=0.0):
         self.move(*new_square.get_center(), duration)
 
         if new_square is self.square:
@@ -61,11 +59,21 @@ class Piece:
         new_square.piece = self
         old_square.piece = None
 
+    def remove(self, duration=0.0):
+        self.square.piece = None
+        self.square = None
+
+        if duration <= 0:
+            self.board.delete(self.canvas_item)
+        else:
+            self.animation = ScalePieceAnimation(duration, self.sprite, self.board, self.canvas_item, None, 0)
+            self.animation.start()
+
     def set_piece_type(self, piece_type):
         self.piece_type = piece_type
 
-        sprite = Piece.psg.piece_to_sprite(piece_type)
-        self.board.itemconfig(self.canvas_item, image=sprite)
+        self.sprite = self.board.psg.piece_to_sprite(piece_type)
+        self.board.itemconfig(self.canvas_item, image=self.sprite)
 
     def set_hidden(self, hidden):
         self.board.itemconfig(self.canvas_item, state="hidden" if hidden else "normal")
@@ -95,11 +103,9 @@ class Square:
     def __str__(self):
         return f"Square(i={self.i}, coordinate={self.coordinate})"
 
-    def remove_piece(self):
+    def remove_piece(self, duration=0.0):
         if self.piece:
-            self.piece.square = None
-            self.board.delete(int(self.piece))
-            self.piece = None
+            self.piece.remove(duration)
 
     def get_center(self):
         return (self.i % 8 + 0.5) * self.size, (self.i // 8 + 0.5) * self.size
@@ -213,7 +219,10 @@ class Board(tk.Canvas):
         self.squares = [Square(self, i, self.square_size) for i in range(64)]
         self.flipped = False
 
+        # Sprite groups
         self.sg = sprites.SpriteGroup()
+        self.psg = sprites.PieceSpriteGroup("data/sprites/pieces/piece_map.json", int(self.square_size * 0.9))
+
         self.fader = None
         self.promotion_prompt = None
 
@@ -273,7 +282,7 @@ class Board(tk.Canvas):
             if type(move_result.special_squares) is int:
                 # En passant
                 en_passanted_square = self.squares[move_result.special_squares]
-                en_passanted_square.remove_piece()
+                en_passanted_square.remove_piece(duration=0.4)
 
             elif type(move_result.special_squares) is tuple:
                 # Castling
@@ -300,12 +309,12 @@ class Board(tk.Canvas):
 
     def reset_board(self, board_data: list[64]):
         if self.dragging:
-            self.delete(self.dragging.canvas_item)
+            self.delete(self.dragging.piece)
             self.dragging = None
 
         for piece_type, gui_square in zip(board_data, self.squares):
             if gui_square.piece:
-                self.delete(gui_square.piece.canvas_item)
+                self.delete(gui_square.piece.piece)
                 gui_square.piece = None
 
             if piece_type:
@@ -384,7 +393,7 @@ class Board(tk.Canvas):
             piece = self.dragging
 
         if piece:
-            piece.move_to_square(piece.square, duration=0.2)
+            piece.move_to_square(piece.square, duration=0.25)
 
         self.dragging = None
 
