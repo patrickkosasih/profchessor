@@ -12,6 +12,10 @@ def rgb_hex_to_int(hex_rgb: str) -> tuple:
     return tuple(int(hex_rgb[i: i + 2], base=16) for i in range(1, 7, 2))
 
 
+def rgb_int_to_hex(rgb: tuple) -> str:
+    return "#%02x%02x%02x" % rgb
+
+
 def translucent_rectangle(opacity: float, width, height, color=(0, 0, 0)) -> ImageTk.PhotoImage:
     """
     Generates a PhotoImage object with the set width and height that contains a solid color with a set opacity.
@@ -27,7 +31,7 @@ def translucent_rectangle(opacity: float, width, height, color=(0, 0, 0)) -> Ima
     return photoimage
 
 
-def hsv_factor(rgb, hf=0, sf=1, vf=1) -> tuple:
+def hsv_factor(rgb: tuple or str, hf=0, sf=1, vf=1) -> tuple:
     """
     Takes a 24 bit RGB value and changes it according to the given HSV factors (hue, saturation, and value)
 
@@ -50,3 +54,15 @@ def hsv_factor(rgb, hf=0, sf=1, vf=1) -> tuple:
     int_rgb = tuple(int(x * 255) for x in new_rgb)  # Convert RGB values from 0.0 - 1.0 to 0 - 255
 
     return int_rgb
+
+
+def mix_color(c1: tuple, c2: tuple, fac=0.5) -> tuple:
+    """
+    Mixes two colors by averaging the RGB values. Colors must be in RGB tuple format.
+
+    :param c1: Color 1.
+    :param c2: Color 2.
+    :param fac: Determines the factor of the color mixing, with 0 being closer to c1 and 1 being closer to c2.
+    """
+
+    return tuple(int((1 - fac) * x + fac * y) for x, y in zip(c1, c2))

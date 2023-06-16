@@ -1,16 +1,18 @@
 import tkinter as tk
 
-import gui.audio
 import rules
 import debug
-from gui import sprites, shared_gui
-from gui.animations.frames import ScalePieceAnimation
+
+from gui import audio, sprites, shared_gui
+from gui.animations.frames import PieceScaleAnimation
 from gui.animations.move import *
+from gui.animations.color import *
 
 BG_COLOR = "#2b3030"
 DARK_SQUARE_COLOR = "#855313"
 LIGHT_SQUARE_COLOR = "#ffe4ad"
 DEFAULT_FADER_COLOR = "#14110a"
+HIGHLIGHT_CHECK_COLOR = "#de1d10"
 
 
 class Piece:
@@ -42,7 +44,7 @@ class Piece:
             self.board.coords(self.canvas_item, x, y)
         else:
             # Animated movement
-            self.animation = MovePieceAnimation(duration, self.board, self.canvas_item, (), (x, y), interpolation)
+            self.animation = PieceMoveAnimation(duration, self.board, self.canvas_item, (), (x, y), interpolation)
             self.animation.start()
 
     def move_to_square(self, new_square: "Square", duration=0.0):
@@ -66,8 +68,13 @@ class Piece:
         if duration <= 0:
             self.board.delete(self.canvas_item)
         else:
-            self.animation = ScalePieceAnimation(duration, self.sprite, self.board, self.canvas_item, None, 0)
+            self.animation = PieceScaleAnimation(duration, self.sprite, self.board, self.canvas_item,
+                                                 start_size=None, end_size=0)
             self.animation.start()
+
+    def wiggle(self, duration=0.5, amp=3, freq=3):
+        self.animation = PieceWiggleAnimation(duration, self.board, self.canvas_item, amp, freq)
+        self.animation.start()
 
     def set_piece_type(self, piece_type):
         self.piece_type = piece_type
@@ -86,6 +93,7 @@ class Square:
         self.coordinate = rules.i_to_coordinate(i)
         self.size = size
         self.piece = None
+        self.animation = None
 
         # Set up canvas square
         x, y = i % 8, i // 8
@@ -109,6 +117,14 @@ class Square:
 
     def get_center(self):
         return (self.i % 8 + 0.5) * self.size, (self.i // 8 + 0.5) * self.size
+
+    def set_color(self, color: tuple):
+        self.board.itemconfig(self.canvas_item, fill=shared_gui.rgb_int_to_hex(color))
+
+    def highlight_check(self):
+        self.piece.wiggle()
+        # self.animation = FadeColorAnimation(0.25, self.set_color, HIGHLIGHT_CHECK_COLOR, self.default_color)
+        # self.animation.start()
 
 
 class PromotionPrompt:
@@ -265,7 +281,7 @@ class Board(tk.Canvas):
         or the en passanted pawn is removed (en passant).
 
         """
-        move_result = self.game.move(piece.square.i, new_square.i)
+        move_result: rules.MoveResult = self.game.move(piece.square.i, new_square.i)
 
         if move_result.move_made:
             """
@@ -292,6 +308,12 @@ class Board(tk.Canvas):
                 rook_new_square: Square = self.squares[rook_new]
 
                 rook.move_to_square(rook_new_square, duration=0.25)
+
+            """
+            Highlight the checked king
+            """
+            if move_result.check:
+                self.squares[move_result.checked_king].highlight_check()
 
             self.move_sfx(move_result)
 
@@ -354,24 +376,24 @@ class Board(tk.Canvas):
     def move_sfx(self, move_result: rules.MoveResult):
         # Primary SFX
         if move_result.capture:
-            gui.audio.play_sound("capture.wav")
+            audio.play_sound("capture.wav")
 
         elif move_result.special:
-            gui.audio.play_sound("castle.wav")
+            audio.play_sound("castle.wav")
 
         elif move_result.move_made:
-            gui.audio.play_sound("move.wav")
+            audio.play_sound("move.wav")
 
         # Secondary SFX
         if move_result.move_made:
             if move_result.check:
                 if move_result.game_over:
-                    gui.audio.play_sound("checkmate.wav")
+                    audio.play_sound("checkmate.wav")
                 else:
-                    gui.audio.play_sound("check.wav")
+                    audio.play_sound("check.wav")
 
             if move_result.promotion:
-                gui.audio.play_sound("promotion.wav")
+                audio.play_sound("promotion.wav")
 
 
     """
@@ -491,5 +513,5 @@ class MainWindow(tk.Tk):
         self.board.pack(anchor="center", expand=True)
 
     def close(self):
-        gui.audio.p.terminate()
+        audio.p.terminate()
         self.destroy()

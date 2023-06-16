@@ -256,6 +256,12 @@ class MoveResult:
             None
         """
 
+        self.checked_king = -1
+        """
+        When a move results in check, the `ChessGame.move` method also specifies the checked king's square. This is done
+        in order for the GUI to highlight the attacked king.
+        """
+
     def __int__(self):
         return self.x
 
@@ -1250,6 +1256,7 @@ class ChessGame(Position):
         3. The returned `MoveResult` instance has additional properties:
             a. Special squares: The square(s) responsible for a special move (only if a special move is made)
             b. Algebraic notation
+            c. Checked king (if the position is in check)
         """
 
         """
@@ -1258,27 +1265,29 @@ class ChessGame(Position):
         move_result_int = super().move(old, new, promote_to)
         move_result = MoveResult(move_result_int)
 
-        if move_result.move_made:
-            """
-            Algebraic notation
-            """
-            prev = self.position_history[-1]
-            algebraic_trail = '#' if (self.game_result and self.game_result.details == GameResult.CHECKMATE) else \
-                ('+' if self.check else "")
+        if not move_result.move_made:
+            return move_result
 
-            move_result.algebraic = prev.algebraic(old, new, promote_to) + algebraic_trail
-            # Additional algebraic notation attribute for the `MoveResult` instance
+        """
+        Algebraic notation
+        """
+        prev = self.position_history[-1]
+        algebraic_trail = '#' if (self.game_result and self.game_result.details == GameResult.CHECKMATE) else \
+            ('+' if self.check else "")
 
-            print(f"{prev.move_num}{'.' if prev.turn else '...'} {move_result.algebraic}")
+        move_result.algebraic = prev.algebraic(old, new, promote_to) + algebraic_trail
+        # Additional algebraic notation attribute for the `MoveResult` instance
 
-            """
-            Debugger stuff
-            """
-            if 2 <= debug.DEBUG_LEVEL < 1000:
-                print(f"\n"
-                      f"Move {self.move_num} for {'white' if self.turn else 'black'}\n"
-                      f"  Legal moves: {self.legal_moves}\n"
-                      f"  Enemy moves: {self.enemy_moves}\n")
+        print(f"{prev.move_num}{'.' if prev.turn else '...'} {move_result.algebraic}")
+
+        """
+        Debugger stuff
+        """
+        if 2 <= debug.DEBUG_LEVEL < 1000:
+            print(f"\n"
+                  f"Move {self.move_num} for {'white' if self.turn else 'black'}\n"
+                  f"  Legal moves: {self.legal_moves}\n"
+                  f"  Enemy moves: {self.enemy_moves}\n")
 
         self.position_history.append(self.copy())
 
@@ -1304,5 +1313,12 @@ class ChessGame(Position):
 
             assert move_result.special_squares
             # print("Special move:", move_result.special_squares)
+
+        """
+        Specify the checked king (only on check)
+        """
+        if self.check:
+            king = "K" if self.turn else "k"
+            move_result.checked_king = self.board.index(king)
 
         return move_result

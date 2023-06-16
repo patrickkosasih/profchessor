@@ -84,7 +84,7 @@ class FrameAnimation(Animation, ABC):
         self.current_photo = self.frame_buffer.get_frame(self.n_frame)
 
 
-class ScalePieceAnimation(FrameAnimation, ABC):
+class PieceScaleAnimation(FrameAnimation, ABC):
     def __init__(self, duration, original_photo: ImageTk.PhotoImage,
                  board, piece: int,
                  start_size: int or None, end_size: int, interpolation=Interpolations.ease_out,

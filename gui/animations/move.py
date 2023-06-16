@@ -1,11 +1,11 @@
 from abc import ABC
 import tkinter as tk
-import math
+from math import sin, pi
 
 from gui.animations.animation import Animation, Interpolations
 
 
-class MovePieceAnimation(Animation, ABC):
+class PieceMoveAnimation(Animation, ABC):
     def __init__(self, duration,
                  board, piece: int, start_pos: tuple, end_pos: tuple, interpolation=Interpolations.linear,
                  *args, **kwargs):
@@ -41,3 +41,32 @@ class MovePieceAnimation(Animation, ABC):
 
     def finished(self):
         self.board.coords(self.piece, *self.end_pos)
+
+class PieceWiggleAnimation(Animation, ABC):
+    def __init__(self, duration,
+                 board, piece: int, amp: float, freq: float,
+                 *args, **kwargs):
+        super().__init__(duration, *args, **kwargs)
+
+        self.board = board
+        self.piece = piece
+        self.amp = amp
+        self.original_pos = board.coords(piece)
+
+        self.wiggle_func = lambda t: sin(pi * t) * sin(2 * pi * freq * t)
+        """
+        The wiggle function converts the animation phase into a value between -1 and 1 with 2 sine functions.
+        The values "wiggle" back and forth in the desired frequency, with the wiggle going from weak, to strong, and
+        to weak again.
+        """
+
+    def tick(self):
+        wiggle_phase = self.wiggle_func(self.phase)
+
+        x = self.original_pos[0] + self.amp * wiggle_phase
+        y = self.original_pos[1]
+
+        self.board.coords(self.piece, x, y)
+
+    def finished(self):
+        self.board.coords(self.piece, *self.original_pos)
