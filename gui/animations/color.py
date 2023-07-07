@@ -1,3 +1,9 @@
+"""
+gui/animations/color.py
+
+A module containing animations of changing the color or opacity of a certain GUI component.
+"""
+
 from abc import ABC
 from typing import Callable
 

@@ -1,3 +1,9 @@
+"""
+gui/shared_gui.py
+
+The module that contains shared functions that are used throughout other GUI modules.
+"""
+
 from PIL import Image, ImageTk
 import colorsys
 
@@ -62,7 +68,7 @@ def mix_color(c1: tuple, c2: tuple, fac=0.5) -> tuple:
 
     :param c1: Color 1.
     :param c2: Color 2.
-    :param fac: Determines the factor of the color mixing, with 0 being closer to c1 and 1 being closer to c2.
+    :param fac: The factor of the color mixing, with 0 being closer to c1 and 1 being closer to c2.
     """
 
     return tuple(int((1 - fac) * x + fac * y) for x, y in zip(c1, c2))

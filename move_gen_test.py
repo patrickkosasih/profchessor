@@ -1,3 +1,9 @@
+"""
+move_gen_test.py
+
+A module that contains tools for testing and debugging the move generation of the rules engine (`rules.py`).
+"""
+
 import copy
 import time
 
@@ -10,7 +16,7 @@ class PositionDebugger(rules.Position):
 
     def copy(self):
         """
-        Overwrites the original copy method. The original copy method always returns a Position instance, while the copy
+        Overrides the original copy method. The original copy method always returns a Position instance, while the copy
         method of DebuggerPosition needs to return its own instance, not a Position instance.
         """
         return copy.deepcopy(self)
@@ -20,9 +26,11 @@ class PositionDebugger(rules.Position):
         Returns how many positions (leaf nodes) there are in a recursive move generation tree of a given depth.
         """
 
+        # Faster: Only counts leaf nodes
         # if depth <= 1:
         #     return sum(len(x) for x in self.legal_moves.values())
 
+        # Slower: Calls leaf nodes
         if depth <= 0:
             return 1
 
@@ -79,4 +87,4 @@ def main():
     # position.move(8, 24)
 
     # position.test_each_moves(3)
-    position.test_each_depths(4)
+    position.test_each_depths(5)

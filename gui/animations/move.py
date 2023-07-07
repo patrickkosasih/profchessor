@@ -1,3 +1,9 @@
+"""
+gui/animations/move.py
+
+A module containing moving animations for pieces and soon other GUI widgets.
+"""
+
 from abc import ABC
 import tkinter as tk
 from math import sin, pi

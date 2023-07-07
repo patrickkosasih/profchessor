@@ -1,3 +1,10 @@
+"""
+debug.py
+
+A small module that contains tools for debugging the internal Python code and a constant for easy switching between
+debug levels (`DEBUG_LEVEL`).
+"""
+
 import time
 
 

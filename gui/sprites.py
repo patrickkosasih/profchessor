@@ -1,8 +1,9 @@
 """
 sprites.py
 
-The module that stores multiple PhotoImage objects into a sprite group in order to store PhotoImage objects globally
-with ease. PhotoImage objects must be a global variable/attribute, otherwise Tkinter won't display the image.
+The module that enables storing multiple `PhotoImage` objects into a single "sprite group" in order to store PhotoImage
+objects globally with ease. This module is made due to the fact that `PhotoImage` objects must be set as a global
+variable/attribute, otherwise Tkinter won't display the image.
 """
 
 from PIL import Image, ImageTk

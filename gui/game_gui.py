@@ -1,3 +1,12 @@
+"""
+gui/game_gui.py
+
+A module that handles the game GUI, such as the chess board, squares, pieces, and more.
+
+The board is an extension of the Tkinter canvas. Squares and pieces are canvas items of the board, and the `Piece` and
+`Square` classes refer their respective canvas item using their `canvas_item` attribute.
+"""
+
 import tkinter as tk
 
 import rules
@@ -16,7 +25,19 @@ HIGHLIGHT_CHECK_COLOR = "#de1d10"
 
 
 class Piece:
-    def __init__(self, board: "Board", piece_type, square, bind_to_square=True):
+    """
+    Pieces are displayed using images on the Tkinter canvas chess board.
+
+    Pieces are bound to its square (circular dependency/reference) by default, which means a piece has a `square`
+    attribute that is specified by the `square` argument on initialization, and that square also has the said piece as
+    its attribute. This can be disabled by setting the `bind_to_square` parameter to false.
+
+    This class has methods to configure itself, such as move, set hidden, remove, etc. When the configuration method has
+    a `duration` parameter, the piece will play an animation while configuring the piece if the duration parameter is
+    more than 0.
+    """
+
+    def __init__(self, board: "Board", piece_type, square: "Square", bind_to_square=True):
         if piece_type not in rules.PIECE_TYPES:
             raise ValueError(f"invalid piece type \"{piece_type}\"")
 
@@ -87,6 +108,14 @@ class Piece:
 
 
 class Square:
+    """
+    Every single one of the 64 squares in a chess board is displayed using a Tkinter canvas rectangle.
+
+    Pieces are bound to their own square by default. When a piece is created, the `piece` attribute of its square is set
+    to be the said piece. The `piece` attribute can then be used by other parts of the program to get the piece of a
+    square.
+    """
+
     def __init__(self, board: tk.Canvas, i, size):
         self.board = board
         self.i = i
@@ -128,6 +157,14 @@ class Square:
 
 
 class PromotionPrompt:
+    """
+    Promotion prompt is a canvas GUI that prompts/asks the user what piece they want to promote to.
+
+    A promotion prompt consists of 2 main elements: the piece "buttons" and the piece button frames. Creating a
+    promotion prompt also automatically configures the board, and clicking on the board (either on the button or not)
+    automatically deletes the buttons and reverts the board back to normal.
+    """
+
     WHITE_PIECES = ("Q", "R", "N", "B")
     BLACK_PIECES = ("q", "r", "n", "b")
 
@@ -135,6 +172,16 @@ class PromotionPrompt:
     DARK_FRAME_COLOR = "#544123"
 
     def __init__(self, board, new_square: Square, pawn: Piece):
+        """
+        Calling the __init__ method creates a new promotion prompt on a board (`board`) for a pawn (`pawn`) that moves
+        onto a promotion square (`new_square`).
+
+        Creating a promotion prompt automatically configures the board GUI:
+        1. Hides the promoting pawn
+        2. Sets the fader
+        3. Disables drag and drop
+        """
+
         assert pawn.piece_type in ("P", "p"), "piece must be a pawn"
         assert new_square.i // 8 in (0, 7), "pawn must be in the topmost or bottommost rank"
 
@@ -153,7 +200,7 @@ class PromotionPrompt:
         board.enable_drag_and_drop = False
 
         """
-        Piece buttons
+        Initialize piece "buttons"
         """
         # Determine the color of the piece buttons and the offset
         if pawn.piece_type.isupper():
@@ -177,11 +224,25 @@ class PromotionPrompt:
             self.pieces[i] = Piece(board, piece, board.squares[i], bind_to_square=False)
 
     def mouse_click(self, clicked_square: Square):
+        """
+        When there is a mouse click on the board, whether on the button or not, the promotion prompt is deleted:
+
+        1. The buttons and button frames are deleted from the board
+        2. The board is configured back to normal.
+            1. Unhides the promoting pawn
+            2. Sets the fader back to 0 opacity
+            3. Enables back drag and drop
+        3. The `promotion_prompt` attribute of the board is set back to None.
+
+        When the mouse clicks on one of the promotion prompt buttons, the pawn promotes. When it doesn't, the pawn is
+        moved back to its original square.
+        """
+
         if clicked_square and clicked_square.i in self.pieces:
             new_piece_type = self.pieces[clicked_square.i].piece_type
 
             """
-            Make the move on the ChessGame
+            Make the move on the `ChessGame`
             """
             move_result = self.board.game.move(old=self.pawn.square.i, new=self.new_square.i,
                                                promote_to=new_piece_type)
@@ -218,6 +279,11 @@ class PromotionPrompt:
 
 
 class Board(tk.Canvas):
+    """
+    The board is the main GUI component of a chess game which has vital GUI attributes and methods such as the drag and
+    drop mechanism, `squares` attribute.
+    """
+
     def __init__(self, root, game, size, **kw):
         super(Board, self).__init__(root, width=size, height=size, highlightthickness=0, **kw)
 

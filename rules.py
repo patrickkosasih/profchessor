@@ -191,7 +191,7 @@ class MoveResult:
         1             |  0   0   0   0   0   1  |  Move to an empty square
         0             |  0   0   0   0   0   0  |  Illegal move
         19            |  0   1   0   0   1   1  |  Piece captures with check
-        55            |  1   1   1   1   1   1  |  En passant checkmate (poggers)
+        55            |  1   1   0   1   1   1  |  En passant checkmate (poggers)
         59            |  1   1   1   0   1   1  |  Pawn captures and promotes with checkmate
         5             |  0   0   0   1   0   1  |  Castling move
         8             |  0   0   1   0   0   0  |  Prompt the promotion to the user
@@ -348,20 +348,20 @@ def is_tracer_at_edge(tracer, offset):
 
       Normal square indexing                       Edge square indexing
 
-      +--------------------------------+            0	1	2	3	4	5	6	7	8	 9
-      | 0	1	2	3	4	5	6	7  |           10   11	12	13	14	15	16	17	18   19
-      | 8	9	10	11	12	13	14	15 |              +--------------------------------+
-      | 16	17	18	19	20	21	22	23 |           20 | 21	22	23	24	25	26	27	28 | 29
-      | 24	25	26	27	28	29	30	31 |           30 | 31	32	33	34	35	36	37	38 | 39
-      | 32	33	34	35	36	37	38	39 |           40 | 41	42	43	44	45	46	47	48 | 49
-      | 40	41	42	43	44	45	46	47 |           50 | 51	52	53	54	55	56	57	58 | 59
-      | 48	49	50	51	52	53	54	55 |           60 | 61	62	63	64	65	66	67	68 | 69
-      | 56	57	58	59	60	61	62	63 |           70 | 71	72	73	74	75	76	77	78 | 79
-      +--------------------------------+           80 | 81	82	83	84	85	86	87	88 | 89
-                                                   90 | 91	92	93	94	95	96	97	98 | 99
+      +--------------------------------+            0   1   2   3   4   5   6   7   8    9
+      | 0   1   2   3   4   5   6   7  |           10   11  12  13  14  15  16  17  18   19
+      | 8   9   10  11  12  13  14  15 |              +--------------------------------+
+      | 16  17  18  19  20  21  22  23 |           20 | 21  22  23  24  25  26  27  28 | 29
+      | 24  25  26  27  28  29  30  31 |           30 | 31  32  33  34  35  36  37  38 | 39
+      | 32  33  34  35  36  37  38  39 |           40 | 41  42  43  44  45  46  47  48 | 49
+      | 40  41  42  43  44  45  46  47 |           50 | 51  52  53  54  55  56  57  58 | 59
+      | 48  49  50  51  52  53  54  55 |           60 | 61  62  63  64  65  66  67  68 | 69
+      | 56  57  58  59  60  61  62  63 |           70 | 71  72  73  74  75  76  77  78 | 79
+      +--------------------------------+           80 | 81  82  83  84  85  86  87  88 | 89
+                                                   90 | 91  92  93  94  95  96  97  98 | 99
                                                       +--------------------------------+
-                                                   100	101	102	103	104	105	106	107	108	 109
-                                                   110	111	112	113	114	115	116	117	118	 119
+                                                   100  101 102 103 104 105 106 107 108  109
+                                                   110  111 112 113 114 115 116 117 118  119
 
     The numbers that are outside the 8x8 square above are edge squares.
 
@@ -461,22 +461,21 @@ class Position:
 
     def generate_piece_moves(self, square: int, controlling_only=False):
         """
-        Generate the legal squares a piece can move to
+        Generates a list containing the legal squares a piece can move to.
+        The basic concept of generating moves is to trace a line that represents the piece's movement.
 
-        Calculating regular moves is mostly based on piece offsets and the "tracer"
-        The tracer is an imaginary thing that goes from a piece to one straight direction (the offset) while marking the
-        squares a piece can go to ("tracing" a line)
+        WARNING: This function is a logic hell.
 
-        :param square: The square index of the piece
+        Parameters:
+
+        :param square: The square index of the piece.
 
         :param controlling_only: A special parameter used to calculate enemy moves.
         If controlling_only is True then it will only return the squares that a piece controls (defends or attacks).
         Pawn pushes are then excluded and other same color pieces that are defended by the given piece are included.
         Checks and absolute pins are also calculated for calculating legal moves later.
 
-        :return: The squares the given piece can go to
-
-        WARNING: This function is currently a logic hell
+        :return: A list of squares (indexes) the given piece can go to.
         """
 
         ret = []
@@ -539,7 +538,7 @@ class Position:
                 ===========
                 
                 The block of code being run inside this loop represents the path of the tracer being traced, or the
-                tracer going from its starting square to its end step by step
+                tracer going from its starting square to its end step by step.
                 
                 For every step of a tracer, different scenarios can happen:
                 1. The tracer encounters another piece
@@ -575,11 +574,13 @@ class Position:
                            
                     Determine whether to stop tracing or not:
                     
-                    1. If the tracer piece is the enemy king (controlling_only must be true), continue tracing, because
-                       the squares behind the enemy king are also attacked and the enemy king cannot go there.
+                    1. If the tracer piece is the enemy king, continue tracing, because the squares behind the enemy
+                       king are also attacked and the enemy king cannot go there.
                        
                     2. If the tracer piece is an enemy piece, the tracer continues tracing and becomes a "phantom
                        tracer" by having pin_suspect set to a number other than -1.
+                       
+                    3. Rule 1 and 2 only applies if the `controlling_only` parameter is true.
                     """
                     different_color = tracer_piece.isupper() != piece.isupper()
                     stop_tracing = True
@@ -813,7 +814,7 @@ class Position:
         move_result is the return value for this method.
         
         This variable must only be added by another value, and mustn't be directly set
-        (e.g. don't write `move_result = MoveResult.CHECK`)
+        (e.g. don't write `move_result = MoveResult.CHECK`, instead write `move_result += MoveResult.CHECK`)
         """
 
         """

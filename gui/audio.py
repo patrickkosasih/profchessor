@@ -1,3 +1,12 @@
+"""
+gui/audio.py
+
+The module that plays audio (sound effects) to the user, powered by the Pyaudio library.
+
+Note: Audio interfacing is technically a separate field from GUI, but this module is still part of the `gui` package in
+order for organizing modules.
+"""
+
 import wave
 import pyaudio
 import threading
